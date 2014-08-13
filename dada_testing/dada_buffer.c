@@ -9,8 +9,8 @@
 #include <unistd.h>
 
 /* EDT recommends datarate/20 for bufsize, expected datarate 0f 6.7 Gbps */
-#define BUFSIZE 45000000
-#define DADA_KEY 'test'
+#define BUFSIZE 4500000
+#define DADA_KEY 0x1234
 #define NUM_READERS 1
 #define NBUFS 1
 
