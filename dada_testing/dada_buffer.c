@@ -9,12 +9,12 @@
 #include <unistd.h>
 
 /* EDT recommends datarate/20 for bufsize, expected datarate 0f 6.7 Gbps */
-#define BUFSIZE 4500000
+#define BUFSIZE 45000000
 #define DADA_KEY 0x1234
 #define NUM_READERS 1
-#define NBUFS 1
+#define NBUFS 8
 
-int dada_key;
+key_t dada_key;
 int num_readers;
 u_int64_t nbufs;
 u_int64_t bufsz;
@@ -39,10 +39,10 @@ int main (int argc, char **argv)
 
     fprintf(stderr, "------------------STARTING TEST---------------------\n");
     fprintf(stderr, "-----------------CREATING BUFFER--------------------\n"
-            "dada_key = %d\n"
+            "dada_key = %x\n"
             "num_readers = %d\n"
-            "nbufs = %"PRIu64"\n"
-            "bufsz = %"PRIu64"\n",
+            "nbufs = %d\n"
+            "bufsz = %d\n",
             DADA_KEY, NUM_READERS, NBUFS, BUFSIZE);
 
     if (create_buffer(DADA_KEY, NUM_READERS, NBUFS, BUFSIZE) == 0)
@@ -54,34 +54,132 @@ int main (int argc, char **argv)
         fprintf (stderr, "FAILED TO CREATE BUFFER\n");
     }
 
-    char *input;
-    input = (char *) malloc(4);
-    strcpy(input, "test");
+    char **input;
+    input = (char **) malloc (sizeof(char *) * 20);
 
-    fprintf(stderr, "-------------------WRITING %s TO BUFFER----------------\n", input);
-    if (write_to_buf(input) < 0)
-        fprintf(stderr, "FAILED TO WRITE\n");
-    else
-        fprintf(stderr, "WROTE SUCCESSFULLY\n");
+    int i;
+    for ( i= 0; i < 20; i++)
+    {
+        input[i] = (char *) malloc (7);
+        sprintf(input[i], "test%02d", i);
+    }
+
+    uint64_t num_clear, num_full;
+    uint64_t num_written, written_index;
+
+    num_clear = ipcbuf_get_nclear(&data_block);
+    num_full = ipcbuf_get_nfull(&data_block);
+    num_written = ipcbuf_get_write_count(&data_block);
+    written_index = ipcbuf_get_write_index(&data_block);
+
+    fprintf (stderr, "NUMBER OF CLEAR BUFFERS : %"PRIu64"\n", num_clear);
+    fprintf (stderr, "NUMBER OF FULL BUFFERS : %"PRIu64"\n", num_full);
+    fprintf (stderr, "NUMBER OF WRITTEN BUFFERS : %"PRIu64"\n", num_written);
+    fprintf (stderr, "INDEX OF WRITTEN BUFFERS : %"PRIu64"\n", written_index);
+
+
+    for (i = 0; i < 16; i++)
+    {
+        fprintf(stderr, "-------------------WRITING %s TO BUFFER----------------\n", input[i]);
+        if (write_to_buf(input[i], 7) < 0)
+            fprintf(stderr, "FAILED TO WRITE\n");
+        else
+            fprintf(stderr, "WROTE SUCCESSFULLY\n");
+
+        num_clear = ipcbuf_get_nclear(&data_block);
+        num_full = ipcbuf_get_nfull(&data_block);
+        num_written = ipcbuf_get_write_count(&data_block);
+        written_index = ipcbuf_get_write_index(&data_block);
+
+        fprintf (stderr, "NUMBER OF CLEAR BUFFERS : %"PRIu64"\n", num_clear);
+        fprintf (stderr, "NUMBER OF FULL BUFFERS : %"PRIu64"\n", num_full);
+        fprintf (stderr, "NUMBER OF WRITTEN BUFFERS : %"PRIu64"\n", num_written);
+        fprintf (stderr, "INDEX OF WRITTEN BUFFERS : %"PRIu64"\n", written_index);
+
+        if (i%2 == 0)
+        {
+            fprintf(stderr, "------------------READING FROM BUFFER-------------------\n");
+            char *read;
+            // input = (char *) malloc(7);
+            uint64_t num_read;
+            if ((num_read = read_next_buf(&read)) < 0)
+                fprintf (stderr, "FAILED TO READ\n");
+            else if (num_read == 0)
+                fprintf(stderr, "NOTHING TO READ\n");
+            else
+                fprintf(stderr, "READ %"PRIu64" bytes, output = %s\n", num_read, read);
+
+            num_clear = ipcbuf_get_nclear(&data_block);
+            num_full = ipcbuf_get_nfull(&data_block);
+            num_written = ipcbuf_get_write_count(&data_block);
+            written_index = ipcbuf_get_write_index(&data_block);
+
+            fprintf (stderr, "NUMBER OF CLEAR BUFFERS : %"PRIu64"\n", num_clear);
+            fprintf (stderr, "NUMBER OF FULL BUFFERS : %"PRIu64"\n", num_full);
+            fprintf (stderr, "NUMBER OF WRITTEN BUFFERS : %"PRIu64"\n", num_written);
+            fprintf (stderr, "INDEX OF WRITTEN BUFFERS : %"PRIu64"\n", written_index);
+        }
+
+    }
+
+    // fprintf(stderr, "-------------------WRITING %s TO BUFFER----------------\n", input);
+    // if (write_to_buf(input, 5) < 0)
+    //     fprintf(stderr, "FAILED TO WRITE\n");
+    // else
+    //     fprintf(stderr, "WROTE SUCCESSFULLY\n");
+
+    for (i = 0; i < 8; i++)
+    {
+        fprintf(stderr, "------------------READING FROM BUFFER-------------------\n");
+        char *read;
+        input = (char *) malloc(7);
+        uint64_t num_read;
+        if ((num_read = read_next_buf(&read)) < 0)
+            fprintf (stderr, "FAILED TO READ\n");
+        else if (num_read == 0)
+            fprintf(stderr, "NOTHING TO READ\n");
+        else
+            fprintf(stderr, "READ %"PRIu64" bytes, output = %s\n", num_read, read);
+
+        num_clear = ipcbuf_get_nclear(&data_block);
+        num_full = ipcbuf_get_nfull(&data_block);
+        num_written = ipcbuf_get_write_count(&data_block);
+        written_index = ipcbuf_get_write_index(&data_block);
+
+        fprintf (stderr, "NUMBER OF CLEAR BUFFERS : %"PRIu64"\n", num_clear);
+        fprintf (stderr, "NUMBER OF FULL BUFFERS : %"PRIu64"\n", num_full);
+        fprintf (stderr, "NUMBER OF WRITTEN BUFFERS : %"PRIu64"\n", num_written);
+        fprintf (stderr, "INDEX OF WRITTEN BUFFERS : %"PRIu64"\n", written_index);
+
+    }
+}
+
+int read_next_buf(char **out)
+{
+    uint64_t read;
+    ipcbuf_lock_read(&data_block);
+    *out = ipcbuf_get_next_read(&data_block, &read);
+    ipcbuf_mark_cleared(&data_block);
+    ipcbuf_unlock_read(&data_block);
+    return read;
 }
 
 int write_to_buf (char *data, uint64_t size)
 {
     uint64_t written = 0;
     ipcbuf_lock_write(&data_block);
+    char *buf = ipcbuf_get_next_write(&data_block);
 
     /* write data to datablock */
-    written = ipcio_write(&data_block, data, size);
-    fprintf (stderr, "Wrote %"PRIu64"bytes to buffer\n");
+    // written = ipcio_write(&data_block, data, size);
+    memcpy(buf, data, size);
+    fprintf (stderr, "Wrote %"PRIu64" bytes to buffer\n", size);
 
-    ipcbuf_mark_filled (&data_block, written);
+    ipcbuf_mark_filled (&data_block, size);
 
     ipcbuf_unlock_write (&data_block);
 
-    if (written == size)
-        return written;
-    else
-        return -1;
+    return size;
 }
 
 int delete_buffer ()
