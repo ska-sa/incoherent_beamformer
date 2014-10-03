@@ -1,4 +1,4 @@
-dada_buffer.o: dada_buffer.c /usr/local/include/ipcbuf.h \
+dada_buffer.o: dada_buffer.c dada_buffer.h /usr/local/include/ipcbuf.h \
  /usr/include/inttypes.h /usr/include/features.h \
  /usr/include/stdc-predef.h /usr/include/x86_64-linux-gnu/bits/predefs.h \
  /usr/include/x86_64-linux-gnu/sys/cdefs.h \
@@ -46,6 +46,8 @@ dada_buffer.o: dada_buffer.c /usr/local/include/ipcbuf.h \
  /usr/include/x86_64-linux-gnu/bits/waitstatus.h /usr/include/alloca.h \
  /usr/include/x86_64-linux-gnu/bits/stdlib-float.h \
  /usr/include/x86_64-linux-gnu/bits/stdlib.h
+
+dada_buffer.h:
 
 /usr/local/include/ipcbuf.h:
 
