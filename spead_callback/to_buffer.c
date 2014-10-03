@@ -156,22 +156,8 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
         }
     }
 
-    // if (ss->buffer_full) {
-    //     if (ss->master_pid == getpid()){
-    //         fprintf(stderr,"Master thread got flag. Trigger new buffer...(%d)\n",getpid());
-    //         mark_filled(ss->circular_buf, DADA_BUFFER_SIZE);
-    //         ss->buffer=get_next_buf(ss->circular_buf);
-    //         set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
-    //     }
-    // }
-
-    // if(ss->prior_ts != prior_ts){  //New buffer has been created
-    //     if (ts >= ss->prior_ts){  //Does this data belong in current buffer?
-    //         buffer = ss->buffer;
-    //         prior_ts = ss->prior_ts;
-    //         fprintf(stderr, "Accessed current buffer");
-    //     }
-    // }
+    if (buffer == NULL) //Must be first time non master thread has run
+        buffer = ss->buffer;
 
     offset = (ts - prior_ts) * EXPECTED_HEAP_LEN;
 
@@ -198,14 +184,10 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
 
     unlock_spead_api_module_shared(s);
 
+    memcpy(buffer + offset, itm, EXPECTED_HEAP_LEN);  //Copy data to buffer
+
     return 0;
 }
-
-int write_data(void *data, uint64_t data_len, unsigned long offset)
-{
-
-    return 0;
-} // end of write_bf_data
 
 int spead_api_timer_callback(struct spead_api_module_shared *s, void *data)
 {
