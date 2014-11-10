@@ -1,0 +1,1 @@
+Ensure that the environmnet variable LD_LIBRARY_PATH points to the lib directory in the spead_callback directory or the code will fail.

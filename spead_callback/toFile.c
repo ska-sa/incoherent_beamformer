@@ -210,8 +210,8 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
             //while there is still data in the itemgroup
 
 #ifdef DEBUG
-            print_spead_item(itm);
-            print_data(itm->i_data, itm->i_data_len);
+            // print_spead_item(itm);
+            // print_data(itm->i_data, itm->i_data_len);
 #endif
 
             if (write_data(itm->i_data, itm->i_data_len, local_offset))
@@ -236,13 +236,25 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
     }
     else
     {
+        fprintf(stderr,"GETTING ITEM WITH ID %d\n", ss->id);
+
+        itm = NULL;
 
         itm = get_spead_item_with_id(ig, ss->id);
 
-#ifdef DEBUG
-        print_spead_item(itm);
-        print_data(itm->i_data, itm->i_data_len);
-#endif
+        if (itm == NULL)
+            fprintf(stderr,"NO ITM\n");
+
+
+        fprintf(stderr,"GOT ITEM WITH ID %d\n", ss->id);
+
+        fprintf(stderr, "ITEM DATA LEN = %lld", itm->i_data_len);
+
+// #ifdef DEBUG
+        // print_spead_item(itm);
+        // print_data(itm->i_data, itm->i_data_len);
+// #endif
+        fprintf(stderr,"WRITING ITEM WITH ID %d\n", ss->id);
 
         if (write_data(itm->i_data, itm->i_data_len, local_offset))
         {
@@ -251,6 +263,7 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
         }
 
         local_offset = local_offset + itm->i_data_len;
+        fprintf(stderr,"WRITTEN ", ss->id);
     }
 
     if (ss->with_markers == true && w_fd2 != NULL)

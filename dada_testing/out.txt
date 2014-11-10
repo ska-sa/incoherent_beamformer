@@ -1,0 +1,37 @@
+
+S-P-E-A-D S.E.R.V.E.R
+
+	SERVER:		[14712]
+	port:		7149
+	nice:		0
+	  CHILD		[14713]
+	  CHILD		[14714]
+	  CHILD		[14715]
+	  CHILD		[14716]
+RATE	[14712]:	  3.104492 gbitsps 3334442496 bps
+	heaps [32mprocessed: 197365[0m
+RATE	[14712]:	  3.054688 gbitsps 3280054272 bps
+	heaps [32mprocessed: 194141[0m
+RATE	[14712]:	  3.061523 gbitsps 3287640576 bps
+	heaps [32mprocessed: 194590[0m
+RATE	[14712]:	  3.049805 gbitsps 3275576832 bps
+	heaps [32mprocessed: 193873[0m
+RATE	[14712]:	  3.069336 gbitsps 3295733760 bps
+	heaps [32mprocessed: 195068[0m
+RTIME	[14714]:	  5.729242 seconds
+t: 1118005
+server_run_loop: rx exiting cleanly
+	CHILD[14714]: exiting with bytes: 414452544 rcount: 196237
+TOTAL	[14714]:	  3.087891 gbits
+RTIME	[14713]:	  5.729875 seconds
+	CHILD[14713]: exiting with bytes: 654483456 rcount: 309888
+TOTAL	[14713]:	  4.875977 gbits
+RTIME	[14715]:	  5.729018 seconds
+	CHILD[14715]: exiting with bytes: 634903104 rcount: 300617
+TOTAL	[14715]:	  4.729492 gbits
+RTIME	[14716]:	  5.728615 seconds
+	CHILD[14716]: exiting with bytes: 657393792 rcount: 311266
+TOTAL	[14716]:	  4.897461 gbits
+destroy_server_us: destroyed server
+shutdown_server_us: server shutdown complete
+register_client_handler_server: server exiting

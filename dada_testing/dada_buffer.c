@@ -63,6 +63,16 @@ void set_current_buf(ipcbuf_t* data_block, char *new_buf)
     buf = new_buf;
 }
 
+char *mark_filled_and_get_next_buf(ipcbuf_t* data_block, uint64_t pos)
+{
+    // while (!ipcbuf_is_writer(data_block)){
+    ipcbuf_lock_write(data_block);
+    ipcbuf_mark_filled (data_block, pos);
+    char *new_buf = ipcbuf_get_next_write(data_block);
+    ipcbuf_unlock_write(data_block);
+    return new_buf;
+}
+
 /*Get the next empty buffer to be written to from the data_block*/
 char *get_next_buf (ipcbuf_t* data_block)
 {
@@ -73,29 +83,23 @@ char *get_next_buf (ipcbuf_t* data_block)
 }
 
 /*Write *data of size to the buffer at position pos*/
-int write_to_buf (ipcbuf_t* data_block, char *data, char* buffer, uint64_t size, uint64_t pos)
+int write_to_buf (ipcbuf_t* data_block, char* buffer, char *data, uint64_t size)
 {
-    uint64_t written = 0;
-    ipcbuf_lock_write(data_block); //Don't think I need this, but I will remove it once I am  sure
+    fprintf(stderr, "WRITING!!!+++++++++++++++++++++++++++++++++++++++++++++++++++++++");
 
-    if (!buf)
-    {
-        fprintf(stderr, "Something went wrong, no buffer to write into.\n");
-        return -1;
+    uint64_t written = 0;
+    while (!ipcbuf_is_writer(data_block)){
+        fprintf(stderr, "NOT WRITER");
+        ipcbuf_lock_write(data_block); //Don't think I need this, but I will remove it once I am  sure
+        if (ipcbuf_is_writer(data_block)){
+            fprintf(stderr, "NOW WRITER");
+        }
     }
 
-    // //If this new data is too big to fit in buffer
-    // if (pos + size > bufsz)
-    // {
-    //     //Mark buffer filled at last written pos
-    //     ipcbuf_mark_filled (&data_block, pos);
-    //     current_buf = ipcbuf_get_next_write(&data_block);
-    // }
-
     /* write data to datablock */
-    memcpy(buf + pos, data, size);
+    memcpy(buffer, data, size);
 
-    fprintf (stderr, "Wrote %"PRIu64" bytes to buffer at pos %"PRIu64"\n", size, pos);
+    // fprintf (stderr, "Wrote %"PRIu64" bytes to buffer at pos %"PRIu64"\n", size, pos);
 
     ipcbuf_unlock_write (data_block);
 
@@ -119,10 +123,11 @@ int delete_buffer (ipcbuf_t* data_block)
 
 int connect_to_buffer(ipcbuf_t* data_block, key_t key)
 {
+    fprintf(stderr, "COPNNECTING!!!+++++++++++++++++++++++++++++++++++++++++++++++++++++++");
     dada_key = key;
     ipcbuf_connect(data_block, key);
     nbufs = ipcbuf_get_nbufs(data_block);
-    bufsz = ipcbuf_get_bufsz (data_block);
+    bufsz = 0; //ipcbuf_get_bufsz (data_block);
     num_readers = ipcbuf_get_nreaders(data_block);
     fprintf(stderr, "Connected ti buffer with :\n"
             "dada_key = %x\n"
@@ -185,37 +190,6 @@ int create_buffer(ipcbuf_t* data_block, key_t d_k, int n_r, u_int64_t nb, u_int6
         return -1;
     }
 
-    //create the header of the buffer, not certain if I will need this
-    // if (ipcbuf_create (&header, dada_key + 1, nhdrs, hdrsz, num_readers) < 0)
-    // {
-    //     fprintf (stderr, "Could not create DADA header block\n");
-    //     return -1;
-    // }
-
-    // fprintf (stderr, "Created DADA header block with nhdrs = %"PRIu64", hdrsz "
-    //          "= %"PRIu64" bytes, nread=%d\n", nhdrs, hdrsz, num_readers);
-
-    //Lock the header into RAM
-    // if (lock && ipcbuf_lock (&header) < 0)
-    // {
-    //     fprintf (stderr, "Could not lock DADA header block into RAM\n");
-    //     return -1;
-    // }
-
-    //Page the header (Don't know why you would want to)
-    // if (page && ipcbuf_page (&header) < 0)
-    // {
-    //     fprintf (stderr, "Could not page DADA header block into RAM\n");
-    //     return -1;
-    // }
-
-    //Page the data No paging until I figure out if I need it
-    // if (page && ipcbuf_page (&data_block) < 0)
-    // {
-    //     fprintf (stderr, "Could not page DADA data block into RAM\n");
-    //     return -1;
-    // }
-
     return 0;
 }
 
@@ -247,7 +221,7 @@ void consume (ipcbuf_t* data_block)
         fprintf(stderr, "output = ");
         int i;
         for (i = 0; i < num_read; i++)
-            fprintf(stderr, "%c", read[i]);
+            fprintf(stderr, "%"PRId8" ,", read[i]);
         fprintf(stderr,"\n");
 
         num_clear = ipcbuf_get_nclear(data_block);
@@ -286,7 +260,7 @@ void produce (ipcbuf_t* data_block)
         input = (char *) malloc (8);
         sprintf(input, "test%03d", num);
         fprintf(stderr, "-------------------WRITING %s TO BUFFER----------------\n", input);
-        if (write_to_buf(data_block, input, 8, (8 * i)%bufsz) < 0)
+        if (write_to_buf(data_block, buf + (8 * i)%bufsz, input, 8) < 0)
             fprintf(stderr, "FAILED TO WRITE\n");
         else
             fprintf(stderr, "WROTE SUCCESSFULLY\n");
