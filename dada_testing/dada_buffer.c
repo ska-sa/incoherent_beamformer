@@ -126,6 +126,7 @@ int connect_to_buffer(ipcbuf_t* data_block, key_t key)
     fprintf(stderr, "COPNNECTING!!!+++++++++++++++++++++++++++++++++++++++++++++++++++++++");
     dada_key = key;
     ipcbuf_connect(data_block, key);
+    fprintf(stderr, "CONNECTED");
     nbufs = ipcbuf_get_nbufs(data_block);
     bufsz = 0; //ipcbuf_get_bufsz (data_block);
     num_readers = ipcbuf_get_nreaders(data_block);
