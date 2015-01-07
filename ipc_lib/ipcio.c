@@ -378,43 +378,45 @@ ssize_t ipcio_write (ipcio_t* ipc, char* ptr, size_t bytes)
 char * ipcio_open_block_read (ipcio_t *ipc, uint64_t *curbufsz, uint64_t *block_id)
 {
 
-  if (ipc->bytes != 0)
+  fprintf (stderr, "IN BLOCK WRITE\n");
+  if (ipc->bytes != 0) 
   {
-    fprintf (stderr, "ipcio_open_block_read: ipc->bytes != 0\n");
+    fprintf (stderr, "ipcio_open_block_write: ipc->bytes != 0\n");
     return 0;
   }
+  fprintf (stderr, "IN BLOCK WRITE 1\n");
 
-  if (ipc->curbuf)
+  if (ipc->curbuf) 
   {
-    fprintf(stderr, "ipcio_open_block_read: ipc->curbuf != 0\n");
+    fprintf(stderr, "ipcio_open_block_write: ipc->curbuf != 0\n");
     return 0;
   }
+  fprintf (stderr, "IN BLOCK WRITE 2\n");
 
-  if (ipc -> rdwrt != 'r' && ipc -> rdwrt != 'R')
+  if (ipc -> rdwrt != 'W')
   {
-    fprintf(stderr, "ipcio_open_block_read: ipc -> rdwrt != [rR]\n");
+    fprintf(stderr, "ipcio_open_block_write: ipc -> rdwrt != W\n");
     return 0;
-  }
+  } 
+  fprintf (stderr, "IN BLOCK WRITE 3\n");
 
-  // test for EOD
-  if (ipcbuf_eod((ipcbuf_t*)ipc))
-  {
-    fprintf(stderr, "ipcio_open_block_read: ipcbuf_eod true, returning null ptr\n");
-    return 0;
-  }
-
-  ipc->curbuf = ipcbuf_get_next_read ((ipcbuf_t*)ipc, &(ipc->curbufsz));
+  ipc->curbuf = ipcbuf_get_next_write ((ipcbuf_t*)ipc);
 
   if (!ipc->curbuf)
   {
-    fprintf (stderr, "ipcio_open_block_read: could not get next block rdwrt=%c\n", ipc -> rdwrt);
+    fprintf (stderr, "ipcio_open_block_write: could not get next block rdwrt=%c\n", ipc -> rdwrt);
     return 0;
   }
+  fprintf (stderr, "IN BLOCK WRITE 4\n");
 
-  *block_id = ipcbuf_get_read_index ((ipcbuf_t*)ipc);
-  *curbufsz = ipc->curbufsz;
+  *block_id = ipcbuf_get_write_index ((ipcbuf_t*)ipc);
+  fprintf (stderr, "IN BLOCK WRITE 5\n");
 
+  ipc->marked_filled = 0;
+  fprintf (stderr, "IN BLOCK WRITE 6\n");
   ipc->bytes = 0;
+
+  fprintf (stderr, "RETURNING\n");
 
   return ipc->curbuf;
 }

@@ -219,11 +219,11 @@ void consume (ipcbuf_t* data_block)
             fprintf(stderr, "NOTHING TO READ\n");
         else
             fprintf(stderr, "READ %"PRIu64" bytes ", num_read);
-        fprintf(stderr, "output = ");
-        int i;
-        for (i = 0; i < num_read; i++)
-            fprintf(stderr, "%"PRId8" ,", read[i]);
-        fprintf(stderr,"\n");
+        // fprintf(stderr, "output = ");
+        // int i;
+        // for (i = 0; i < num_read; i++)
+        //     fprintf(stderr, "%"PRId8" ,", read[i]);
+        // fprintf(stderr,"\n");
 
         num_clear = ipcbuf_get_nclear(data_block);
         num_full = ipcbuf_get_nfull(data_block);
@@ -234,7 +234,7 @@ void consume (ipcbuf_t* data_block)
         fprintf (stderr, "NUMBER OF FULL BUFFERS : %"PRIu64"\n", num_full);
         fprintf (stderr, "NUMBER OF WRITTEN BUFFERS : %"PRIu64"\n", num_written);
         fprintf (stderr, "INDEX OF WRITTEN BUFFERS : %"PRIu64"\n", written_index);
-        sleep (3);
+        // sleep (3);
     }
 }
 

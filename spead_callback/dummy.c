@@ -37,6 +37,10 @@
 clock_t start;
 uint64_t diff;
 uint64_t num_bytes_transferred;
+struct snap_shot
+{
+    unsigned int numheaps;
+};
 
 void spead_api_destroy(struct spead_api_module_shared *s, void *data)
 {
@@ -45,22 +49,66 @@ void spead_api_destroy(struct spead_api_module_shared *s, void *data)
 
     float b_p_s = num_bytes_transferred/sec;
     fprintf(stderr, KRED "Transfered %f Gigabits per second\n" RESET, b_p_s/1000000000 * 8);
+
+    lock_spead_api_module_shared(s);
+
+    struct snap_shot *ss;
+
+    ss = NULL;
+
+    ss = get_data_spead_api_module_shared(s);
+
+    fprintf(stderr, KRED "numheaps = %u\n" RESET, ss->numheaps);
     
 }
 
 void *spead_api_setup(struct spead_api_module_shared *s)
 {
+    fprintf(stderr, "IN SETUP\n");
+    struct snap_shot *ss;
+
+    ss = NULL;
+   
+
+    lock_spead_api_module_shared(s);
+    fprintf(stderr, "LOCKED\n");
+
+    if (!(ss = get_data_spead_api_module_shared(s)))
+    {
+        fprintf(stderr, "ALLOCATING\n");
+        ss = shared_malloc(sizeof(struct snap_shot));
+        if (ss == NULL)
+        {
+            unlock_spead_api_module_shared(s);
+            return NULL;
+        }
+        ss->numheaps = 0;
+    }
+    fprintf(stderr, "ALLOCATED\n");
+    set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
+
+    unlock_spead_api_module_shared(s);
 
     num_bytes_transferred = 0;
     start = NULL;
+    fprintf(stderr, "OUT SETUP\n");
 }
 
 
 int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_group *ig, void *data)
 {
-    if (start == NULL){
+    fprintf(stderr, "IN CALLBACK\n");
+    if (start == NULL)
         start = clock(), diff;
-    }
+
+    struct snap_shot *ss;
+
+    ss = get_data_spead_api_module_shared(s); 
+    lock_spead_api_module_shared(s);
+    ss->numheaps +=1;
+    set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
+    unlock_spead_api_module_shared(s);
+
     num_bytes_transferred += EXPECTED_HEAP_LEN;
 
     return 0;

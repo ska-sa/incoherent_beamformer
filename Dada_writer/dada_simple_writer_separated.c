@@ -15,18 +15,20 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-void usage()
-{
-  fprintf (stdout,
-	   "dada_simple_writer [options]\n"
-     " -h   print this help text\n"
-     " -k   hexadecimal shared memory key  [default: %x]\n"
-     " -f   file to write to the ring buffer \n"
-     " -o bytes  number of bytes to seek into the file\n"
-     " -s   single file then exit\n"
-     " -d   run as daemon\n"
-     " -z   use zero copy shm access\n", DADA_DEFAULT_BLOCK_KEY);
-}
+dada_hdu_t * hdu;
+
+// void usage()
+// {
+//   fprintf (stdout,
+// 	   "dada_simple_writer [options]\n"
+//      " -h   print this help text\n"
+//      " -k   hexadecimal shared memory key  [default: %x]\n"
+//      " -f   file to write to the ring buffer \n"
+//      " -o bytes  number of bytes to seek into the file\n"
+//      " -s   single file then exit\n"
+//      " -d   run as daemon\n"
+//      " -z   use zero copy shm access\n", DADA_DEFAULT_BLOCK_KEY);
+// }
 
 // function to write the header to the datablock
 int simple_writer_open (dada_hdu_t * hdu)
@@ -125,11 +127,11 @@ int simple_writer_write (dada_hdu_t * hdu, char * input, uint64_t block_size)
   return 0;
 }
 
-void close_hdu (dada_hdu_t * hdu, uint64_t block_size){
+void simple_writer_close_hdu (dada_hdu_t * hdu, uint64_t block_size){
   ipcio_close_block_write (hdu->data_block, block_size);
 }
 
-void connect_hdu (dada_hdu_t * hdu, key_t dada_key){
+void simple_writer_connect_hdu (dada_hdu_t * hdu, key_t dada_key){
   // PSRDada logging utility
   multilog_t* log = multilog_open ("dada_simple_writer", 0);
   multilog_add (log, stderr);
@@ -151,13 +153,41 @@ void connect_hdu (dada_hdu_t * hdu, key_t dada_key){
 
 }
 
+void to_dada_buffer (dada_hdu_t * hdu)  //SHould only be called by master thread
+{  
+    fprintf(stderr, "IN to dada buffer\n");
+    int o_b_off = order_buffer_tail %  obSize;
+    if (buffer == NULL)
+    {
+        fprintf(stderr, "NO BUFFER\n");
+    }
+    if (order_buffer == NULL)
+        fprintf(stderr, "NO ORDER BUFFER\n");
 
-int main (int argc, char **argv)
-{
-  fprintf(stderr, "open\n");
-  dada_hdu_t * circular_buf;
-  connect_hdu(circular_buf, 0x1234);
-  fprintf(stderr, "connected\n");
+    fprintf(stderr, "order_buffer_tail = %llu, o_b_off = %d, obSegment = %d\n", order_buffer_tail, o_b_off, obSegment);
+    // memcpy(buffer + order_buffer_tail, order_buffer + o_b_off, obSegment);
+    // simple_writer_write(hdu, order_buffer + o_b_off, obSegment);
+    fprintf(stderr, "after copy");
 
-  return EXIT_SUCCESS;
+    if (dropped_packet_buffer[o_b_off / expectedHeapLen / 32] == -1){
+         fprintf(stderr, KGRN "[%d] -- No dropped packets. dpb = %d\n" RESET , getpid(), dropped_packet_buffer[o_b_off / expectedHeapLen / 32]);
+    }
+    else{
+        fprintf(stderr, KRED "[%d] -- Dropped packets. dpb = %d\n" RESET, getpid(), dropped_packet_buffer[o_b_off / expectedHeapLen / 32]);
+        zero_dropped_packets();
+    }
+
+    dropped_packet_buffer[o_b_off / expectedHeapLen / 32] = 0;
+    order_buffer_tail = (order_buffer_tail + obSegment) % dadaBufSize;
+    num_bytes_transferred += obSegment;
 }
+
+
+// int main (int argc, char **argv)
+// {
+//   fprintf(stderr, "open\n");
+//   connect_hdu(circular_buf, 0x1234);
+//   fprintf(stderr, "connected\n");
+
+//   return EXIT_SUCCESS;
+// }
