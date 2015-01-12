@@ -164,13 +164,6 @@ void get_settings()
     if (env_temp != NULL) dadaNumBufs = atoi(env_temp);
     else dadaNumBufs = DADA_NUM_BUFS;
 
-    // env_temp = getenv("BYTES_PER_SAMPLE");
-    // if (env_temp != NULL) bytesPerSample = atoi(env_temp);
-    // else bytesPerSample = BYTES_PER_SAMPLE;
-
-    // #define NUM_HEAPS_PER_BUFFER 32
-    // #define NUM_HEAPS_PER_ORDER_BUF 8
-
     env_temp = getenv("NUM_HEAPS_PER_BUFFER");
     if (env_temp != NULL) numHeapsPerBuf = atoi(env_temp);
     else numHeapsPerBuf = NUM_HEAPS_PER_BUFFER;
@@ -184,8 +177,6 @@ void get_settings()
         fprintf(stderr, "Number of heaps per DADA buffer = %u\n Not divisible by num heaps per order buffer = %u",numHeapsPerBuf, numHeapsPerOB);
         exit(0);
     }
-
-    // numHeapsPerBuf = 32 * numWorkers; //Number of heaps to put in each Dada buffer
 
     fprintf(stderr, "numheapsperbuff = %zu\n", numHeapsPerBuf);
 
@@ -210,7 +201,7 @@ void get_settings()
     if (env_temp != NULL) obKey = atoi(env_temp);
     else obKey = ORDER_BUFFER_KEY;
 
-    dpbSize = numHeapsPerOB;
+    dpbSize = numHeapsPerOB * 32 / numBitsInSegment;  //so that each dpbbuffer location has 1 segment
 
     env_temp = getenv("DROPPED_PACKET_BUFFER_KEY");
     if (env_temp != NULL) dpbKey = atoi(env_temp);
@@ -239,8 +230,6 @@ struct sembuf sb;                       //oreder buffer semaphore
 
 int o_b_tail_sem_id;
 struct sembuf o_b_tail_sem;                 //semaphore for the order buffer tail variable.
-
-// int num_dada_copies;
 
 clock_t start;
 uint64_t diff;
@@ -292,13 +281,10 @@ void spead_api_destroy(struct spead_api_module_shared *s, void *data)
     int sec = diff / CLOCKS_PER_SEC;
 
     float b_p_s = num_bytes_transferred/sec;
-    // fprintf(stderr, KRED "Transfered %f Gigabits per second\n" RESET, b_p_s/1000000000 * 8);
 
     fprintf(stderr, ": PID [%d] master PID = \n",getpid());
     struct snap_shot *ss;
-    // fprintf(stderr, "%s: PID [%d] master PID = %d\n",getpid(), ss->master_pid);
     ss = get_data_spead_api_module_shared(s);
-    // fprintf(stderr, ": PID [%d] master PID = %d\n",getpid(), ss->master_pid);
     if ((ss != NULL) && (getpid() == ss->master_pid)){
 
         fprintf(stderr, KGRN "numHeaps = %u\n"RESET, ss->numHeaps);
@@ -329,7 +315,6 @@ void spead_api_destroy(struct spead_api_module_shared *s, void *data)
 // function to write the header to the datablock
 int simple_writer_open (dada_hdu_t * hdu)
 {
-    // fprintf(stderr, KYEL "IN OPEN\n" RESET);
   // get the size of each header block
   uint64_t header_size = ipcbuf_get_bufsz (hdu->header_block);
 
@@ -340,7 +325,6 @@ int simple_writer_open (dada_hdu_t * hdu)
     multilog (hdu->log, LOG_WARNING, "Could not get next header block\n");
     fprintf(stderr, KRED "Could not get next header block\n" RESET);
   }
-  // fprintf(stderr, KYEL "IN OPEN1\n" RESET);
 
   // now write all the required key/value pairs to the header. Some 
   // examples shown below
@@ -351,7 +335,6 @@ int simple_writer_open (dada_hdu_t * hdu)
     multilog (hdu->log, LOG_WARNING, "Could not write RA to header\n");
     fprintf(stderr, KRED "Could not write RA to header\n" RESET);
   }
-  // fprintf(stderr, KYEL "IN OPEN2\n" RESET);
 
   sprintf (buffer, "%02d:%02d:%02d.%d", -47, 15, 9, 31863);
   if (ascii_header_set (header, "DEC", "%s", buffer) < 0)
@@ -359,15 +342,108 @@ int simple_writer_open (dada_hdu_t * hdu)
     multilog (hdu->log, LOG_WARNING, "Could not write DEC to header\n");
     fprintf(stderr, KRED "Could not write DEC to header\n" RESET);
   }
-  // fprintf(stderr, KYEL "IN OPEN3\n" RESET);
 
-  float tsamp = 0.005;
+  float tsamp = 0.000256*1000000;
   if (ascii_header_set (header, "TSAMP", "%f", tsamp) < 0)
   {
     multilog (hdu->log, LOG_WARNING, "Could not write TSAMP to header\n");
     fprintf(stderr, KRED "Could not write TSAMP to header\n" RESET);
   }
-  // fprintf(stderr, KYEL "IN OPEN4\n" RESET);
+
+  fprintf (stderr, KRED "HEADER BLOCK SIZE = %llu"RESET, header_size);
+  fprintf (stderr, KRED "HEADER BLOCK SIZE = %llx"RESET, header_size);
+
+  sprintf (buffer, "KAT7");
+  if (ascii_header_set (header, "TELESCOPE", "%s", buffer) < 0)
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not write TELESCOPE to header\n");
+    fprintf(stderr, KRED "Could not write TELESCOPE to header\n" RESET);
+  } 
+
+  sprintf (buffer, "KPSR");
+  if (ascii_header_set (header, "INSTRUMENT", "%s", buffer) < 0)
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not write TELESCOPE to header\n");
+    fprintf(stderr, KRED "Could not write TELESCOPE to header\n" RESET);
+  } 
+
+  sprintf (buffer, "PLACEHOLDER");
+  if (ascii_header_set (header, "SOURCE", "%s", buffer) < 0)
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not write SOURCE to header\n");
+    fprintf(stderr, KRED "Could not write SOURCE to header\n" RESET);
+  }
+  
+  sprintf (buffer, "PLACEHOLDER");
+  if (ascii_header_set (header, "CALFREQ", "%s", buffer) < 0)
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not write SOURCE to header\n");
+    fprintf(stderr, KRED "Could not write SOURCE to header\n" RESET);
+  }
+
+  sprintf (buffer, "PLACEHOLDER");
+  if (ascii_header_set (header, "FREQ", "%s", buffer) < 0)
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not write SOURCE to header\n");
+    fprintf(stderr, KRED "Could not write SOURCE to header\n" RESET);
+  }
+
+  sprintf (buffer, "PLACEHOLDER");
+  if (ascii_header_set (header, "BANDWIDTH", "%s", buffer) < 0)
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not write SOURCE to header\n");
+    fprintf(stderr, KRED "Could not write SOURCE to header\n" RESET);
+  }
+
+  
+  if (ascii_header_set (header, "NPOL", "%d", 1) < 0)
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not write SOURCE to header\n");
+    fprintf(stderr, KRED "Could not write SOURCE to header\n" RESET);
+  }
+
+  sprintf (buffer, "PLACEHOLDER");
+  if (ascii_header_set (header, "NBIT", "%d", 8) < 0)
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not write SOURCE to header\n");
+    fprintf(stderr, KRED "Could not write SOURCE to header\n" RESET);
+  }
+
+  sprintf (buffer, "PLACEHOLDER");
+  if (ascii_header_set (header, "NCHAN", "%d", 1024) < 0)
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not write SOURCE to header\n");
+    fprintf(stderr, KRED "Could not write SOURCE to header\n" RESET);
+  }
+
+  sprintf (buffer, "PLACEHOLDER");
+  if (ascii_header_set (header, "NDIM", "%d", 2) < 0)
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not write SOURCE to header\n");
+    fprintf(stderr, KRED "Could not write SOURCE to header\n" RESET);
+  }
+
+  sprintf (buffer, "PLACEHOLDER");
+  if (ascii_header_set (header, "BANDWIDTH", "%s", buffer) < 0)
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not write SOURCE to header\n");
+    fprintf(stderr, KRED "Could not write SOURCE to header\n" RESET);
+  }
+
+  sprintf (buffer, "PLACEHOLDER");
+  if (ascii_header_set (header, "OBS_OFFSET", "%d", 0) < 0)
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not write SOURCE to header\n");
+    fprintf(stderr, KRED "Could not write SOURCE to header\n" RESET);
+  }
+
+  sprintf (buffer, "PLACEHOLDER");
+  if (ascii_header_set (header, "RESOLUTION", "%d", 1) < 0)
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not write SOURCE to header\n");
+    fprintf(stderr, KRED "Could not write SOURCE to header\n" RESET);
+  }
+
 
   // DSPSR requires:
   // TELESCOPE  : Telescope name e.g. Parkes
@@ -385,7 +461,6 @@ int simple_writer_open (dada_hdu_t * hdu)
 
   // after all required header parameters filled in, marked the header as filled (valid)
   ipcbuf_mark_filled (hdu->header_block, header_size);
-  // fprintf(stderr, KYEL "DONE\n" RESET);
 
   return 0;
 }
@@ -395,77 +470,28 @@ int count;
 void * dadaThread(void *x)
 {
     count = 0;
-
-    // fprintf (stderr, KRED "DADA ob_id = %d\n" RESET, ob_id);
-    // fprintf (stderr, KRED "DADA dpb_id = %d\n" RESET, dpb_id);
     int sig;
-
-    // order_buffer = (char *)shmat(ob_id, NULL, 0);
-    // dropped_packet_buffer = (char *)shmat(dpb_id, NULL, 0);
-
-    fprintf(stderr, KRED "INIT SEM\n" RESET);
-    o_b_tail_sem.sem_num = 0;
-    o_b_tail_sem.sem_op = -1;  /* set to allocate resource */
-    o_b_tail_sem.sem_flg = SEM_UNDO;
-
-    if ((o_b_tail_sem_id = initsem(o_b_sem_key, 1)) == -1) {
-        fprintf (stderr, "FAILED TO CREATE order buffer tail SEMAPHORE!");
-    }
-    fprintf(stderr, KRED "SEM INITTED\n" RESET);
 
     log = multilog_open ("dada_simple_writer", 0);
     multilog_add (log, stderr);
     // create PSRDADA header + dada struct
-      hdu = dada_hdu_create (log);
-      if (hdu->data_block == NULL)
-        {
-            fprintf (stderr, KYEL "data_block null 1\n" RESET);
-        }
-
-      // set the key (this should match the key used to create the SMRB with dada_db -k XXXX)
-      dada_hdu_set_key(hdu, dadaBufId);
-      if (hdu->data_block == NULL)
-        {
-            fprintf (stderr, KYEL "data_block null 2\n" RESET);
-        }
+    hdu = dada_hdu_create (log);
+    // set the key (this should match the key used to create the SMRB with dada_db -k XXXX)
+    dada_hdu_set_key(hdu, dadaBufId);
 
     if (hdu == NULL)
     {
         fprintf (stderr, "hdu null\n");
-    }
-    if (hdu->data_block == NULL)
-    {
-        fprintf (stderr, "data_block null\n");
     }
 
     if (dada_hdu_connect (hdu) < 0)
             fprintf(stderr, KRED "couldn't connect\n" RESET);
-        if (hdu->data_block == NULL)
-            {
-                fprintf (stderr, KYEL "data_block null 3\n" RESET);
-            }
 
-        fprintf(stderr, KGRN "[%d] dada lock write\n" RESET, getpid());
-
-        if (dada_hdu_lock_write (hdu) < 0){
-            fprintf(stderr, KRED "CONNECT FAILED" RESET);
-            // return EXIT_FAILURE;
-        }
-        if (hdu->data_block == NULL)
-            {
-                fprintf (stderr, KYEL "data_block null 4 \n" RESET);
-            }
-        // ss->master_pid = getpid();
-        fprintf (stderr, KGRN "[%d] OPENING" RESET, getpid());
-
-        simple_writer_open(hdu);
-
-        if (hdu->data_block == NULL)
-            {
-                fprintf (stderr, KYEL "data_block null 5\n" RESET);
-            }
-
-        fprintf (stderr, KGRN "[%d] OPENed\n" RESET, getpid());
+    if (dada_hdu_lock_write (hdu) < 0){
+        fprintf(stderr, KRED "CONNECT FAILED" RESET);
+        // return EXIT_FAILURE;
+    }
+    simple_writer_open(hdu);
 
     if (hdu == NULL)
     {
@@ -476,9 +502,7 @@ void * dadaThread(void *x)
         fprintf (stderr, "data_block null\n");
     }
 
-    //From simple writer  
     uint64_t block_id;
-    // fprintf (stderr, KGRN "bytes = %d\n", hdu->data_block->bytes);
     buffer = ipcio_open_block_write (hdu->data_block, &block_id);
 
     if (!buffer)
@@ -488,42 +512,38 @@ void * dadaThread(void *x)
       return -1;
     }
 
-    fprintf(stderr, KGRN "Buffer fetched\n" RESET);
-
     while(1){
-    sigwait(&sset, &sig);
-    // fprintf(stderr, KGRN "DADA THREAD, recieved signal %d\n" RESET, sig);
-    if (sig == SIGUSR1){
-        // fprintf(stderr, KGRN "DADA THREAD, TO DADA%d\n" RESET, sig);
-        to_dada_buffer();
-    }
-    if (sig == SIGUSR2){
-        fprintf(stderr, KGRN "DADA THREAD, NEW BUFFER %d\n" RESET, sig);
-        ipcio_close_block_write (hdu->data_block, dadaBufSize);
-        uint64_t block_id;
-        buffer = ipcio_open_block_write (hdu->data_block, &block_id);
+        sigwait(&sset, &sig);
 
-        if (!buffer)
-        {
-          multilog (hdu->log, LOG_ERR, "write: ipcio_open_block_write failed\n");
-          fprintf(stderr, KRED "NO BUFFER\n" RESET);
-          return -1;
+        if (sig == SIGUSR1){
+            to_dada_buffer();
         }
-        // unsigned long long add = numHeapsPerBuf * timestampIncrement; //How much to add to the timstamp
-        // ss->prior_ts = (ss->prior_ts + add) % ULLONG_MAX;  //New prior_ts
-        // set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
-            
-                // buffer = ss->buffer;
-                // prior_ts = ss->prior_ts;
-                // offset = (ts - prior_ts) / timestampIncrement * expectedHeapLen;
 
-    }
-    // fprintf(stderr, KGRN "DADA THREAD, TO DADA SUCCESS %d\n" RESET, sig);
+        if (sig == SIGUSR2){
+            ipcio_close_block_write (hdu->data_block, dadaBufSize);
+            uint64_t block_id;
+            buffer = ipcio_open_block_write (hdu->data_block, &block_id);
 
-        // fprintf(stderr, KGRN "[%d] num recieved heaps = %u\n"RESET, count, numRecievedPackets);
-        // fprintf(stderr, KGRN "num dropped heaps = %u\n"RESET, numDroppedPackets);
-        // fprintf(stderr, KGRN "Dropped %u%%\n"RESET, numDroppedPackets * 100 /numRecievedPackets);
-        // count++;
+            if (!buffer)
+            {
+              multilog (hdu->log, LOG_ERR, "write: ipcio_open_block_write failed\n");
+              fprintf(stderr, KRED "NO BUFFER\n" RESET);
+              return -1;
+            }
+
+        }
+
+        if (sig == SIGINT){
+            fprintf(stderr, KGRN "EXITING DADA THREAD"RESET);
+            if (dada_hdu_unlock_write (hdu) < 0)
+                return EXIT_FAILURE;
+
+            // disconnect from the SMRB
+            if (dada_hdu_disconnect (hdu) < 0)
+                return EXIT_FAILURE;
+
+            return EXIT_SUCCESS;
+        }
     }
 }
 
@@ -565,11 +585,9 @@ void *spead_api_setup(struct spead_api_module_shared *s)
         }
 
         ss->dada_key = dadaBufId;
-        // ss->buffer_full = 0;
         ss->prior_ts = 0;
         ss->first_thread = 0;
         ss->numHeaps = 0;
-        // ss->master_pid = 0;
 
         if (ss->buffer_created == 0){
             ss->buffer_created == 1;
@@ -594,17 +612,15 @@ void *spead_api_setup(struct spead_api_module_shared *s)
             pthread_create(&dada, NULL, dadaThread, &n1);
             ss->parentPID = getpid();
         }
+
         set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
     }
 
     num_bytes_transferred = 0;
-
     unlock_spead_api_module_shared(s);
-
-    printf("EXITING");
 }
 
-void set_bit(int* array, int pos)
+void set_bit(int* array, int pos)  //Set the bit in the DPB associated with this heap
 {
     sb.sem_op = -1;  
     if (semop(o_b_sem_id, &sb, 1) == -1) {
@@ -612,8 +628,10 @@ void set_bit(int* array, int pos)
         fprintf(stderr, KRED "SEMOP CLOSE FAIL" RESET);
         exit(1);
     }
-    array[pos/32] |= 1 << (pos % numBitsInSegment);
+
+    array[pos/numBitsInSegment] |= 1 << (pos % numBitsInSegment);
     sb.sem_op = 1;
+
     if (semop(o_b_sem_id, &sb, 1) == -1) {
         perror("semop");
         fprintf(stderr, KRED "SEMOP OPEN FAIL" RESET);
@@ -624,22 +642,19 @@ void set_bit(int* array, int pos)
 
 int get_bit(int* array, int pos)
 {
-    return ((array[pos/32] & (1 << (pos%32) )) != 0);
+    return ((array[pos/numBitsInSegment] & (1 << (pos%numBitsInSegment) )) != 0);
 }
 
 void write_to_order_buffer(char* heap, unsigned long long offset)
 {
-    // fprintf(stderr, "WRITE TO ORDER BUFFER\n");
     unsigned long long o_b_off = offset %  obSize;
     memcpy(order_buffer + o_b_off, heap, expectedHeapLen);
-    int dp_pos = o_b_off/expectedHeapLen;
+    int dp_pos = o_b_off/expectedHeapLen; //This is the bit location of this packet in the dpb (essentially it is a (heap#)%(#heaps in order buffer) assuming the first heap# is 0)
     set_bit(dropped_packet_buffer, dp_pos);
-    // fprintf(stderr, "EXIT WRITE TO ORDER BUFFER\n");
 }
 
 void zero_dropped_packets()  //Should only be called by master thread
 {
-    // fprintf(stderr, "%d ZEROING\n", count);
     int o_b_off = order_buffer_tail %  obSize;
     int i = 0;
     for (i = 0; i < numBitsInSegment; i++){
@@ -649,14 +664,12 @@ void zero_dropped_packets()  //Should only be called by master thread
             numDroppedPackets +=1;
         }
     }
-    // fprintf(stderr, "%d ZEROED\n", count);
 }
 
 
 
 void to_dada_buffer ()  //Should only be called by master thread
 {  
-    // fprintf(stderr, "IN to dada buffer\n");
     if (buffer == NULL)
     {
         fprintf(stderr, "NO BUFFER\n");
@@ -665,29 +678,14 @@ void to_dada_buffer ()  //Should only be called by master thread
         fprintf(stderr, "NO ORDER BUFFER\n");
 
     int o_b_off = order_buffer_tail %  obSize;
-
-    // fprintf(stderr, "order_buffer_tail = %llu, o_b_off = %d, obSegment = %d\n", order_buffer_tail, o_b_off, obSegment);
     memcpy(buffer + order_buffer_tail, order_buffer + o_b_off, obSegment);
     order_buffer_tail = (order_buffer_tail + obSegment) % dadaBufSize;
 
-    if (dropped_packet_buffer[o_b_off / expectedHeapLen / 32] == noDroppedPackets){
-         fprintf(stderr, KGRN "[%d] -- No dropped packets. dpb = %d\n" RESET , getpid(), dropped_packet_buffer[o_b_off / expectedHeapLen / 32]);
-         
-    }
-    else{
-        fprintf(stderr, KRED "[%d] -- Dropped packets. dpb = %d\n" RESET, getpid(), dropped_packet_buffer[o_b_off / expectedHeapLen / 32]);
-        // zero_dropped_packets();
-    }
-
-    // if (dropped_packet_buffer[o_b_off / expectedHeapLen / 32] != noDroppedPackets)
-    //     zero_dropped_packets();
-
-    fprintf(stderr, "%d order_buffer_tail = %llu\n", count,order_buffer_tail);
+    if (dropped_packet_buffer[o_b_off / expectedHeapLen / 32] != noDroppedPackets)
+        zero_dropped_packets();
 
     numRecievedPackets += numBitsInSegment;
-
-    dropped_packet_buffer[o_b_off / expectedHeapLen / 32] = 0;
-      
+    dropped_packet_buffer[o_b_off / expectedHeapLen / numBitsInSegment] = 0;
     num_bytes_transferred += obSegment;
 }
 
@@ -703,7 +701,6 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
 
     ss = get_data_spead_api_module_shared(s); //Get shared data module
     itm = NULL;
-
     itm = get_spead_item_with_id(ig, timestampSpeadId);
 
     if (itm == NULL){
@@ -712,9 +709,8 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
     }
     // TS is 5 byte unsigned 
     ts = (long long)itm->i_data[0] + (long long)itm->i_data[1] * 256 + (long long)itm->i_data[2] * 256 * 256 + (long long)itm->i_data[3] * 256 * 256 * 256 + (long long)itm->i_data[4] * 256 * 256 * 256 * 256;
-
-
     itm = get_spead_item_with_id(ig, dataSpeadId);
+
     if (itm == NULL){
         fprintf(stderr, "%s: No beamformer payload data found.\n", __func__); 
         return -1;
@@ -725,8 +721,6 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
        fprintf(stderr,"%s: Expecting heap size of %llu, got %llu\n", __func__, expectedHeapLen, itm->i_data_len);
        return -1;
     }
-
-     //lock shared data
 
     if (ss == NULL)
     {
@@ -739,91 +733,54 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
     lock_spead_api_module_shared(s);
 
     if (ss->first_thread == 0) { //First thread to run
+
         start = clock(), diff;
-        
         ss->first_thread = 1;
         ss->master_pid = getpid();
         fprintf(stderr, KGRN "MASTER thread is %d\n" RESET, getpid());
         ss->prior_ts = ts;
-
-        // fprintf(stderr, KGRN "[%d] dada connect\n" RESET, getpid());
-
         ss->buffer_connected = 1;
-                
     }
+
     ss->numHeaps+=1;
     set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
     unlock_spead_api_module_shared(s);
     
     if (ss->buffer_connected == 1){
-        // fprintf (stderr, KGRN "[%d] buffer_connected = %d\n", getpid(), ss->buffer_connected);
+        if (order_buffer == NULL){ //Must be first time non master thread has run
+            prior_ts = ss->prior_ts;
+            order_buffer = (char *)shmat(ss->ob_id, NULL, 0);
+            dropped_packet_buffer = (char *)shmat(ss->dpb_id, NULL, 0);
+            sb = ss->sb;
+            o_b_sem_id = ss->o_b_sem_id;
+            order_buffer_tail = 0;
+        }
 
-    if (order_buffer == NULL){ //Must be first time non master thread has run
-        prior_ts = ss->prior_ts;
+        if (prior_ts < ss->prior_ts)
+            prior_ts = ss->prior_ts;
 
-        order_buffer = (char *)shmat(ss->ob_id, NULL, 0);
-        dropped_packet_buffer = (char *)shmat(ss->dpb_id, NULL, 0);
-        sb = ss->sb;
-        o_b_sem_id = ss->o_b_sem_id;
-        order_buffer_tail = 0;
-    }
+        offset = (ts - prior_ts) / timestampIncrement * expectedHeapLen;
+        write_to_order_buffer(itm, offset);  //Copy data to buffer
+        lock_spead_api_module_shared(s);
+        long long check = offset - ss->order_buffer_tail; //If this difference is greater than a orderbuffer segment, then we should move data to dada buffer
 
-    if (prior_ts < ss->prior_ts)
-        prior_ts = ss->prior_ts;
-    // else if (prior_ts < ss->prior_ts)
-    // {
-
-    //     fprintf(stderr, KRED "prior_ts = %llu, ss-> prior_ts = %llu\nHeap too late, dropped heap" RESET, prior_ts, ss->prior_ts);
-    // }
-
-    offset = (ts - prior_ts) / timestampIncrement * expectedHeapLen;
-
-
-    // fprintf (stderr, KYEL "[%d] prior_ts = %llu, ss-> prior_ts = %llu\n"RESET, getpid(), prior_ts, ss->prior_ts);
-    // fprintf (stderr, KYEL "[%d] ts = %llu\n"RESET, getpid(), ts);
-    // fprintf (stderr, KYEL "[%d] offset = %llu\n"RESET, getpid(), offset);
-
-    write_to_order_buffer(itm, offset);  //Copy data to buffer
-    lock_spead_api_module_shared(s);
-    long long check = offset - ss->order_buffer_tail; //If this difference is greater than a orderbuffer segment, then we should move data to dada buffer
-
-    // fprintf (stderr, KYEL "[%d] check = %llu, obSegment = %llu\n" RESET , getpid(), check, obSegment);
-    if (check < 0)
-        check = check * -1;
-
-    // if (getpid() == ss->master_pid){  //Only the master thread deals with the DADA buffer
-        // fprintf(stderr, KGRN "IN MASTER SECTION\n" RESET);
-
-    // fprintf (stderr, KYEL "[%d] check = %lld and obSegment *2 = %llu\n"RESET, getpid(), check, obSegment * 2);
+        if (check < 0)
+            check = check * -1;
 
         if (( check > obSegment * 2) )
         {
             if (offset >= dadaBufSize){  //If the offset is greater than a DADA buffer, we need to open a new buffer and reset counters
                 int ret = kill(ss->parentPID,SIGUSR2);
-                // fprintf (stderr, KRED "SENT NEW BUFFER SIGNAL %d\n" RESET, ret);
                 unsigned long long add = numHeapsPerBuf * timestampIncrement; //How much to add to the timstamp
                 ss->prior_ts = (ss->prior_ts + add) % ULLONG_MAX;  //New prior_ts
                 prior_ts = ss->prior_ts;
                 offset = (ts - prior_ts) / timestampIncrement * expectedHeapLen;
-                
-                
             }
-            // fprintf (stderr, KGRN "[%d] SEND TO BUFFER SIGNAL\n" RESET, getpid());
-            int ret = kill(ss->parentPID,SIGUSR1);
-            // fprintf (stderr, KRED "[%d] SENT TO BUFFER SIGNAL %d\n" RESET, getpid(), ret);
-            fprintf (stderr, KYEL "[%d] ss->order_buffer_tail = %d\n" RESET, getpid(), ss->order_buffer_tail);
-            ss->order_buffer_tail = (ss->order_buffer_tail + obSegment) % dadaBufSize;
-            // fprintf (stderr, KYEL "[%d] ss->order_buffer_tail = %d\n" RESET, getpid(), ss->order_buffer_tail);
-            // order_buffer_tail = ss->order_buffer_tail;
-            set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
-            
-        //      fprintf(stderr, KGRN "num recieved heaps = %u\n"RESET, numRecievedPackets);
-        // fprintf(stderr, KGRN "num dropped heaps = %u\n"RESET, numDroppedPackets);
-        // fprintf(stderr, KGRN "Dropped %u%%\n"RESET, numDroppedPackets * 100 /numRecievedPackets);
-        }
 
-        // fprintf(stderr, KGRN "OUT MASTER SECTION\n" RESET);
-    // }
+            int ret = kill(ss->parentPID,SIGUSR1);
+            ss->order_buffer_tail = (ss->order_buffer_tail + obSegment) % dadaBufSize;
+            set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
+        }
     }
     else
         fprintf(stderr, KYEL "NOT CONNECTED YET\n" RESET);

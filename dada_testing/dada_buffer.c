@@ -225,6 +225,8 @@ void consume (ipcbuf_t* data_block)
         //     fprintf(stderr, "%"PRId8" ,", read[i]);
         // fprintf(stderr,"\n");
 
+        hexdump(read, num_read, 16);
+
         num_clear = ipcbuf_get_nclear(data_block);
         num_full = ipcbuf_get_nfull(data_block);
         num_written = ipcbuf_get_write_count(data_block);
@@ -235,6 +237,42 @@ void consume (ipcbuf_t* data_block)
         fprintf (stderr, "NUMBER OF WRITTEN BUFFERS : %"PRIu64"\n", num_written);
         fprintf (stderr, "INDEX OF WRITTEN BUFFERS : %"PRIu64"\n", written_index);
         // sleep (3);
+    }
+}
+
+void hexdump(unsigned char *buffer, unsigned long index, unsigned long width)
+{
+    unsigned long i = 0;
+    int j;
+    printf("\n%08lx\t:",i);
+    if (index > width){
+        
+        int j;
+        for (j = 0; j < index - width; j=j+width){
+            for (i=j;i<j+width;i++)
+            {
+                printf("%02x ",buffer[i]);
+            }
+            printf("\t");
+            for (i=j;i<j+width;i++)
+            {
+                if ('!' < buffer[i] && buffer[i] < '~')
+                    printf("%c",buffer[i]);
+                else
+                    printf(".");
+            }
+            printf("\n%08lx\t:",i);
+        }
+        for (i;i<index; i++)
+        {
+            printf("%02x ",buffer[i]);
+        }
+    }
+    else{
+        for (i;i<index; i++)
+        {
+            printf("%02x ",buffer[i]);
+        }
     }
 }
 
