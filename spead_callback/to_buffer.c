@@ -94,6 +94,7 @@ unsigned int dadaNumReaders;
 unsigned int dadaNumBufs;
 size_t numHeapsPerBuf;
 size_t dadaBufSize;
+time_t startTime; // UNIX TIMESTAMP OF STARTTIME
 
 //Order buffer variables
 unsigned int numHeapsPerOB;
@@ -193,9 +194,15 @@ void get_settings()
 
     obSegment = obSize / 4;
     numBitsInSegment = numHeapsPerOB / 4;
-    noDroppedPackets = (1 << numBitsInSegment) - 1;
+    fprintf(stderr, KYEL "numBitsInSegment = %d" RESET, numBitsInSegment);
+    if (numBitsInSegment < 32)
+        noDroppedPackets = (1 << numBitsInSegment) - 1;
+    else if (numBitsInSegment == 32)
+        noDroppedPackets = -1;
+    else
+        fprintf(stderr, KRED "order buffer segments are greater than 32 heaps");
 
-    fprintf(stderr, "noDroppedPackets = %u", noDroppedPackets);
+    fprintf(stderr, "noDroppedPackets = %d\n", noDroppedPackets);
 
     env_temp = getenv("ORDER_BUFFER_KEY");
     if (env_temp != NULL) obKey = atoi(env_temp);
@@ -214,6 +221,10 @@ void get_settings()
     env_temp = getenv("ORDER_BUFFER_TAIL_SEM_KEY");
     if (env_temp != NULL) o_b_sem_key = atoi(env_temp);
     else o_b_sem_key = ORDER_BUFFER_TAIL_SEM_KEY;
+
+    env_temp = getenv("STARTTIME");
+    if (env_temp != NULL) startTime = atoi(env_temp);
+    else startTime = 1421072677;
 
 }
 
@@ -282,10 +293,19 @@ void spead_api_destroy(struct spead_api_module_shared *s, void *data)
 
     float b_p_s = num_bytes_transferred/sec;
 
-    fprintf(stderr, ": PID [%d] master PID = \n",getpid());
+    
     struct snap_shot *ss;
     ss = get_data_spead_api_module_shared(s);
+    if ((ss != NULL) && (getpid() == ss->parentPID)){
+        fprintf(stderr, KGRN "exiting DADA thread"RESET);
+    }
+
+    fprintf(stderr, ": PID [%d] master PID = %d\n",getpid(), ss->master_pid);
     if ((ss != NULL) && (getpid() == ss->master_pid)){
+
+        // int ret = kill(ss->parentPID,SIGINT);
+        while (kill (ss->parentPID, 0) == -1)
+            usleep(100);
 
         fprintf(stderr, KGRN "numHeaps = %u\n"RESET, ss->numHeaps);
         fprintf(stderr, KGRN "num recieved heaps = %u\n"RESET, numRecievedPackets);
@@ -299,6 +319,8 @@ void spead_api_destroy(struct spead_api_module_shared *s, void *data)
         ipc_delete(ss->dropped_packet_buffer, ss->dpb_id);
         sem_delete(ss->o_b_sem_id);
 
+        
+
         shared_free(ss, sizeof(struct snap_shot));
         clear_data_spead_api_module_shared(s);
         unlock_spead_api_module_shared(s);
@@ -310,6 +332,14 @@ void spead_api_destroy(struct spead_api_module_shared *s, void *data)
  #endif
     
     }
+
+    if ((ss != NULL) && (getpid() == ss->parentPID)){
+        fprintf(stderr, KGRN "[%d] exiting DADA thread2\n"RESET, getpid());
+        exit(0);
+    }
+    else
+        fprintf(stderr, KGRN "[%d] exiting thread\n "RESET, getpid());
+
 }
 
 // function to write the header to the datablock
@@ -326,9 +356,30 @@ int simple_writer_open (dada_hdu_t * hdu)
     fprintf(stderr, KRED "Could not get next header block\n" RESET);
   }
 
+  struct tm utc_start = *localtime(&startTime);
+  time_t     now;
+    struct tm  ts;
+    time(&now);
+    ts = *localtime(&now);
+  char buffer[64];
+  strftime(&buffer, 64,"%Y-%m-%d-%H:%M:%S", &utc_start);
+
+  fprintf (stderr, KYEL "time -- %s", buffer);
+
+  if (ascii_header_set (header, "UTC_START", "%s", buffer) < 0)
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not write TELESCOPE to header\n");
+    fprintf(stderr, KRED "Could not write TELESCOPE to header\n" RESET);
+  }
+  if (ascii_header_set (header, "HDR_SIZE", "%d", 4096) < 0)
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not write TELESCOPE to header\n");
+    fprintf(stderr, KRED "Could not write TELESCOPE to header\n" RESET);
+  }
+
   // now write all the required key/value pairs to the header. Some 
   // examples shown below
-  char buffer[64];
+  
   sprintf (buffer, "%02d:%02d:%02d.%d", 4, 37, 15, 883250);
   if (ascii_header_set (header, "RA", "%s", buffer) < 0)
   {
@@ -351,7 +402,6 @@ int simple_writer_open (dada_hdu_t * hdu)
   }
 
   fprintf (stderr, KRED "HEADER BLOCK SIZE = %llu"RESET, header_size);
-  fprintf (stderr, KRED "HEADER BLOCK SIZE = %llx"RESET, header_size);
 
   sprintf (buffer, "KAT7");
   if (ascii_header_set (header, "TELESCOPE", "%s", buffer) < 0)
@@ -423,8 +473,14 @@ int simple_writer_open (dada_hdu_t * hdu)
     fprintf(stderr, KRED "Could not write SOURCE to header\n" RESET);
   }
 
+  if (ascii_header_set (header, "BYTES_PER_SECOND", "%d", 973640000) < 0)
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not write SOURCE to header\n");
+    fprintf(stderr, KRED "Could not write SOURCE to header\n" RESET);
+  }
+
   sprintf (buffer, "PLACEHOLDER");
-  if (ascii_header_set (header, "BANDWIDTH", "%s", buffer) < 0)
+  if (ascii_header_set (header, "BW", "%s", buffer) < 0)
   {
     multilog (hdu->log, LOG_WARNING, "Could not write SOURCE to header\n");
     fprintf(stderr, KRED "Could not write SOURCE to header\n" RESET);
@@ -467,7 +523,7 @@ int simple_writer_open (dada_hdu_t * hdu)
 
 int count;
 
-void * dadaThread(void *x)
+int dadaThread(struct spead_api_module_shared *s)
 {
     count = 0;
     int sig;
@@ -508,12 +564,13 @@ void * dadaThread(void *x)
     if (!buffer)
     {
       multilog (hdu->log, LOG_ERR, "write: ipcio_open_block_write failed\n");
-      fprintf(stderr, KRED "NO BUFFER\n");
+      fprintf(stderr, KRED "NO BUFFER1\n");
       return -1;
     }
 
-    while(1){
-        sigwait(&sset, &sig);
+    sigwait(&sset, &sig);
+    while(sig != SIGINT){
+        
 
         if (sig == SIGUSR1){
             to_dada_buffer();
@@ -527,24 +584,26 @@ void * dadaThread(void *x)
             if (!buffer)
             {
               multilog (hdu->log, LOG_ERR, "write: ipcio_open_block_write failed\n");
-              fprintf(stderr, KRED "NO BUFFER\n" RESET);
+              fprintf(stderr, KRED "NO BUFFER2\n" RESET);
               return -1;
             }
 
         }
+        sigwait(&sset, &sig);
 
-        if (sig == SIGINT){
-            fprintf(stderr, KGRN "EXITING DADA THREAD"RESET);
-            if (dada_hdu_unlock_write (hdu) < 0)
-                return EXIT_FAILURE;
-
-            // disconnect from the SMRB
-            if (dada_hdu_disconnect (hdu) < 0)
-                return EXIT_FAILURE;
-
-            return EXIT_SUCCESS;
-        }
+        // if (sig == SIGINT){
+        //     fprintf (stderr, KRED "recieved interupt" RESET);
+        //     return 1;
+        // }
     }
+
+
+    fprintf (stderr, KRED "[%d] exiting dada thread" RESET, getpid());
+    ipcio_stop(hdu->data_block);
+    dada_hdu_unlock_write(hdu);
+    dada_hdu_disconnect(hdu);
+    // raise (SIGINT);
+    spead_api_destroy (s, "");
 }
 
 
@@ -561,6 +620,7 @@ void *spead_api_setup(struct spead_api_module_shared *s)
     fprintf (stderr, "ORDER_BUFFER_SIZE = %llu\n", obSize);
     fprintf (stderr, "ORDER_BUFFER_SEGMENT = %llu\n", obSegment);
     fprintf (stderr, "DROPPED_PACKET_BUFFER_SIZE = %d\n", dpbSize);
+    fprintf (stderr, "EXPECTED HEAP SIZE = %d\n", expectedHeapLen);
 
     struct snap_shot *ss;
 
@@ -571,7 +631,8 @@ void *spead_api_setup(struct spead_api_module_shared *s)
     sigemptyset(&sset);
     sigaddset(&sset, SIGUSR1);
     sigaddset(&sset, SIGUSR2);
-    pthread_sigmask(SIG_BLOCK, &sset, NULL);
+    sigaddset(&sset, SIGINT);
+    
 
     lock_spead_api_module_shared(s);
 
@@ -609,8 +670,19 @@ void *spead_api_setup(struct spead_api_module_shared *s)
             dpb_id = ss->dpb_id;
             fprintf (stderr, KRED "ob_id = %d\n" RESET, ss->ob_id);
             fprintf (stderr, KRED "dpb_id = %d\n" RESET, ss->dpb_id);
-            pthread_create(&dada, NULL, dadaThread, &n1);
             ss->parentPID = getpid();
+            set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
+            unlock_spead_api_module_shared(s);
+
+            order_buffer = (char *)shmat(ss->ob_id, NULL, 0);
+            dropped_packet_buffer = (char *)shmat(ss->dpb_id, NULL, 0);
+            sb = ss->sb;
+            o_b_sem_id = ss->o_b_sem_id;
+            order_buffer_tail = 0;
+            pthread_sigmask(SIG_BLOCK, &sset, NULL);
+            dadaThread(s);
+            // pthread_create(&dada, NULL, dadaThread, &n1);
+            
         }
 
         set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
@@ -631,6 +703,7 @@ void set_bit(int* array, int pos)  //Set the bit in the DPB associated with this
 
     array[pos/numBitsInSegment] |= 1 << (pos % numBitsInSegment);
     sb.sem_op = 1;
+    // fprintf(stderr, KYEL "dpb = %d\n", array[pos/numBitsInSegment]);
 
     if (semop(o_b_sem_id, &sb, 1) == -1) {
         perror("semop");
@@ -645,12 +718,18 @@ int get_bit(int* array, int pos)
     return ((array[pos/numBitsInSegment] & (1 << (pos%numBitsInSegment) )) != 0);
 }
 
-void write_to_order_buffer(char* heap, unsigned long long offset)
+void write_to_order_buffer(void* heap, unsigned long long offset)
 {
     unsigned long long o_b_off = offset %  obSize;
     memcpy(order_buffer + o_b_off, heap, expectedHeapLen);
-    int dp_pos = o_b_off/expectedHeapLen; //This is the bit location of this packet in the dpb (essentially it is a (heap#)%(#heaps in order buffer) assuming the first heap# is 0)
-    set_bit(dropped_packet_buffer, dp_pos);
+    // int dp_pos = o_b_off/expectedHeapLen; //This is the bit location of this packet in the dpb (essentially it is a (heap#)%(#heaps in order buffer) assuming the first heap# is 0)
+    // set_bit(dropped_packet_buffer, dp_pos);
+
+    // fprintf(stderr, "EXPECTED HEAP LEN = %llu", expectedHeapLen);
+    // fprintf (stderr, "At offset %llu\nINCOMING HEAP IS\n", offset);
+    // hexdump (heap, expectedHeapLen, 16);
+    // fprintf (stderr, "IN ORDER BUFFER\n");
+    // hexdump (order_buffer + o_b_off, expectedHeapLen, 16);
 }
 
 void zero_dropped_packets()  //Should only be called by master thread
@@ -664,6 +743,43 @@ void zero_dropped_packets()  //Should only be called by master thread
             numDroppedPackets +=1;
         }
     }
+}
+
+void hexdump(unsigned char *buffer, unsigned long long index, unsigned long long width)
+{
+    unsigned long i = 0;
+    int j;
+    fprintf(stderr,"\n%08lx\t:",i);
+    if (index > width){
+        
+        int j;
+        for (j = 0; j < index - width; j=j+width){
+            for (i=j;i<j+width;i++)
+            {
+                fprintf(stderr,"%02x ",buffer[i]);
+            }
+            fprintf(stderr,"\t");
+            for (i=j;i<j+width;i++)
+            {
+                if ('!' < buffer[i] && buffer[i] < '~')
+                    fprintf(stderr,"%c",buffer[i]);
+                else
+                    fprintf(stderr,".");
+            }
+            fprintf(stderr,"\n%08lx\t:",i);
+        }
+        for (i;i<index; i++)
+        {
+            fprintf(stderr,"%02x ",buffer[i]);
+        }
+    }
+    else{
+        for (i;i<index; i++)
+        {
+            fprintf(stderr,"%02x ",buffer[i]);
+        }
+    }
+    fprintf(stderr,"\n");
 }
 
 
@@ -680,13 +796,18 @@ void to_dada_buffer ()  //Should only be called by master thread
     int o_b_off = order_buffer_tail %  obSize;
     memcpy(buffer + order_buffer_tail, order_buffer + o_b_off, obSegment);
     order_buffer_tail = (order_buffer_tail + obSegment) % dadaBufSize;
+    memset(order_buffer + o_b_off, 0, obSegment);
 
-    if (dropped_packet_buffer[o_b_off / expectedHeapLen / 32] != noDroppedPackets)
-        zero_dropped_packets();
+    // if (dropped_packet_buffer[o_b_off / expectedHeapLen / numBitsInSegment] != noDroppedPackets){
+    //      // fprintf(stderr, KRED "Dropped packets dpb = %d\n" RESET, dropped_packet_buffer[o_b_off / expectedHeapLen / numBitsInSegment]);
+    //     // zero_dropped_packets();
+    // }
+    // else
+    //     fprintf(stderr, KGRN "No dropped packets dpb = %d\n" RESET, dropped_packet_buffer[o_b_off / expectedHeapLen / numBitsInSegment]);
 
-    numRecievedPackets += numBitsInSegment;
-    dropped_packet_buffer[o_b_off / expectedHeapLen / numBitsInSegment] = 0;
-    num_bytes_transferred += obSegment;
+    // numRecievedPackets += numBitsInSegment;
+    // dropped_packet_buffer[o_b_off / expectedHeapLen / numBitsInSegment] = 0;
+    // num_bytes_transferred += obSegment;
 }
 
 
@@ -704,6 +825,7 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
     itm = get_spead_item_with_id(ig, timestampSpeadId);
 
     if (itm == NULL){
+        fprintf(stderr, "timestampSpeadId = %d", timestampSpeadId);
      fprintf(stderr, "%s: No timestamp data found (id: 0x%x)\n", __func__, TIMESTAMP_SPEAD_ID);
     return -1;
     }
@@ -760,7 +882,7 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
             prior_ts = ss->prior_ts;
 
         offset = (ts - prior_ts) / timestampIncrement * expectedHeapLen;
-        write_to_order_buffer(itm, offset);  //Copy data to buffer
+        write_to_order_buffer(itm->i_data, offset);  //Copy data to buffer
         lock_spead_api_module_shared(s);
         long long check = offset - ss->order_buffer_tail; //If this difference is greater than a orderbuffer segment, then we should move data to dada buffer
 
