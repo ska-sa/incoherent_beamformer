@@ -5,7 +5,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <time.h>
-
+#include <sys/gmon.h>
 #include <spead_api.h>
 
 
@@ -34,6 +34,7 @@
 #define ORDER_BUFFER_SEGMENT NUM_WORKERS * EXPECTED_HEAP_LEN * 8 
 #define DROPPED_PACKET_BUFFER_SIZE NUM_WORKERS * 4
 
+int count = 0;
 clock_t start;
 uint64_t diff;
 uint64_t num_bytes_transferred;
@@ -44,6 +45,9 @@ struct snap_shot
 
 void spead_api_destroy(struct spead_api_module_shared *s, void *data)
 {
+    fprintf (stderr, "DESTROY");
+    //gmon_start_all_thread_timers();
+    //gmon_thread_timer(1);
     // diff = clock() - start;
     // int sec = diff / CLOCKS_PER_SEC;
 
@@ -64,7 +68,8 @@ void spead_api_destroy(struct spead_api_module_shared *s, void *data)
 
 void *spead_api_setup(struct spead_api_module_shared *s)
 {
-    // fprintf(stderr, "IN SETUP\n");
+    //gmon_thread_timer(1);
+    fprintf(stderr, "IN SETUP\n");
     // struct snap_shot *ss;
 
     // ss = NULL;
@@ -91,16 +96,19 @@ void *spead_api_setup(struct spead_api_module_shared *s)
 
     // num_bytes_transferred = 0;
     // start = NULL;
-    // fprintf(stderr, "OUT SETUP\n");
+    fprintf(stderr, "OUT SETUP\n");
 }
 
 
 int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_group *ig, void *data)
 {
-    // fprintf(stderr, "IN CALLBACK\n");
+    fprintf(stderr, "IN CALLBACK\n");
     // if (start == NULL)
     //     start = clock(), diff;
+    // if (count > 100000000)
+    //     exit(0);
 
+    // count++;
     // struct snap_shot *ss;
 
     // ss = get_data_spead_api_module_shared(s); 
