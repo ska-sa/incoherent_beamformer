@@ -534,7 +534,10 @@ int dadaThread(struct spead_api_module_shared *s)
     // create PSRDADA header + dada struct
     hdu = dada_hdu_create (log);
     // set the key (this should match the key used to create the SMRB with dada_db -k XXXX)
-    fprintf (stderr, KRED "dada_buf_id = %d", dadaBufId);
+    fprintf (stderr, KRED "dada_buf_id = %x\n", dadaBufId);
+
+    // printf(stderr, "%d %d\n", SHMMIN, SHMMAX);
+    fprintf (stderr, KRED " size of hdu_t = %d\n", sizeof(ipcbuf_t));
     dada_hdu_set_key(hdu, dadaBufId);
 
     if (hdu == NULL)
@@ -546,7 +549,7 @@ int dadaThread(struct spead_api_module_shared *s)
             fprintf(stderr, KRED "couldn't connect\n" RESET);
 
     if (dada_hdu_lock_write (hdu) < 0){
-        fprintf(stderr, KRED "CONNECT FAILED" RESET);
+        fprintf(stderr, KRED "CONNECT FAILED\n" RESET);
         // return EXIT_FAILURE;
     }
     simple_writer_open(hdu);
@@ -576,12 +579,14 @@ int dadaThread(struct spead_api_module_shared *s)
     fprintf(stderr, KGRN "WAITING FOR SIGNAL\n" RESET);
     sigwait(&sset, &sig);
     fprintf(stderr, KGRN "SIGNAL RECIEVED\n" RESET);
+    // int count = 0;
     while(sig != SIGINT){
         
 
         if (sig == SIGUSR1){
             to_dada_buffer();
-            fprintf(stderr, KGRN "WRITE_TO_BUFFER\n" RESET);
+            // count++;
+            // fprintf(stderr, KYEL "TO_DADA\n" RESET);
         }
 
         if (sig == SIGUSR2){
@@ -599,6 +604,9 @@ int dadaThread(struct spead_api_module_shared *s)
 
         }
         sigwait(&sset, &sig);
+        if (count % 1000 == 0){
+        // fprintf(stderr, KYEL "After sig\n" RESET);
+    }
 
         // if (sig == SIGINT){
         //     fprintf (stderr, KRED "recieved interupt" RESET);
@@ -824,7 +832,7 @@ void to_dada_buffer ()  //Should only be called by master thread
 
 int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_group *ig, void *data)
 {
-    fprintf(stderr, "PACKET RECIEVED");
+    // fprintf(stderr, "PACKET RECIEVED");
     struct snap_shot *ss;
     struct spead_api_item *itm;
     unsigned long long ts;
@@ -876,9 +884,9 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
 
     ss->numHeaps+=1;
     set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
-    unlock_spead_api_module_shared(s);
+    // unlock_spead_api_module_shared(s);
 
-    fprintf(stderr, KGRN "[%d] BUFFER CONNECTED? %d\n" RESET, getpid(), ss->buffer_connected);
+    // fprintf(stderr, KGRN "[%d] BUFFER CONNECTED? %d\n" RESET, getpid(), ss->buffer_connected);
     
     if (ss->buffer_connected == 1){
         if (order_buffer == NULL){ //Must be first time non master thread has run
@@ -894,9 +902,9 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
             prior_ts = ss->prior_ts;
 
         offset = (ts - prior_ts) / timestampIncrement * expectedHeapLen;
-        fprintf(stderr, KGRN "[%d] TO_ORDER_BUFFER\n" RESET, getpid());
+        // fprintf(stderr, KGRN "[%d] TO_ORDER_BUFFER\n" RESET, getpid());
         write_to_order_buffer(itm->i_data, offset);  //Copy data to buffer
-        lock_spead_api_module_shared(s);
+        // lock_spead_api_module_shared(s);
         long long check = offset - ss->order_buffer_tail; //If this difference is greater than a orderbuffer segment, then we should move data to dada buffer
 
         if (check < 0)
@@ -906,6 +914,7 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
         {
             if (offset >= dadaBufSize){  //If the offset is greater than a DADA buffer, we need to open a new buffer and reset counters
                 int ret = kill(ss->parentPID,SIGUSR2);
+                fprintf (stderr, KRED "SIGNAL SENT\n" RESET);
                 unsigned long long add = numHeapsPerBuf * timestampIncrement; //How much to add to the timstamp
                 ss->prior_ts = (ss->prior_ts + add) % ULLONG_MAX;  //New prior_ts
                 prior_ts = ss->prior_ts;

@@ -102,12 +102,13 @@ void *spead_api_setup(struct spead_api_module_shared *s)
 
 int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_group *ig, void *data)
 {
-    fprintf(stderr, "IN CALLBACK\n");
+    //fprintf(stderr, "IN CALLBACK\n");
     // if (start == NULL)
     //     start = clock(), diff;
     // if (count > 100000000)
     //     exit(0);
 
+    //fprintf(stderr, "YOLO");
     // count++;
     // struct snap_shot *ss;
 
