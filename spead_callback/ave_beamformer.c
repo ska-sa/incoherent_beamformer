@@ -224,6 +224,7 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
     if (ts - prior_ts >= AVE_OVER){
         lock_spead_api_module_shared(s);
         pwrite (w_fd2, ss->ave, sizeof(float) * N_CHANS, sizeof(float) * N_CHANS * ss->num_writes);
+        divide (ss->ave, ts - prior_ts);
         memset(ss->ave, 0, sizeof(float) * N_CHANS);
         ss->prior_ts = ts;
         set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
@@ -242,6 +243,14 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
     //   unlock_spead_api_module_shared(s);
     // }
     return 0;
+}
+
+void divide (float* ave, int divisor)
+{
+    int i;
+    for (i = 0; i < N_CHANS; i++){
+        ave[i] = ave[i] / divisor;
+    }
 }
 
 void add (int8_t * data, float* ave){
