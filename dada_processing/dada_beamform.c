@@ -5,6 +5,8 @@
 #include <string.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <omp.h>
+#include <time.h>
 
 #include "dada_hdu.h"
 #include "dada_def.h"
@@ -15,6 +17,7 @@
 
 #define ACCUMULATE 256
 #define N_CHANS 1024
+#define N_POLS 2
 
 #define KNRM  "\x1B[0m"
 #define KRED  "\x1B[31m"
@@ -134,20 +137,34 @@ void beamform(dada_hdu_t * hdu1, dada_hdu_t * hdu2)
     
 
     fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", hdu1->data_block->curbufsz);
-    // while(1){
+    while(1){
+
+        if (dada_hdu_lock_read (hdu1) < 0){
+            fprintf(stderr, KRED "CONNECT FAILED\n" RESET);
+             // return EXIT_FAILURE;
+        }
+
         uint8_t* accumulated;
         
         buffer1 = ipcio_open_block_read(hdu1->data_block, &hdu1->data_block->curbufsz, &blockid);
         // fprintf(stderr, "blockid= %x\n", blockid);
         
         // fprintf(stderr, "size= %llu\n", size);
-    // }
+    
+        clock_t start = clock(), diff;
+
         accumulate (hdu1->data_block->curbuf, accumulated, hdu1->data_block->curbufsz);
+
+        diff = clock() - start;
+        int msec = diff * 1000 / CLOCKS_PER_SEC;
+        fprintf(stderr, "Time taken %d seconds %d milliseconds\n", msec/1000, msec%1000);
+
         ssize_t size =  ipcio_close_block_read(hdu1->data_block, hdu1->data_block->curbufsz);
         dada_hdu_unlock_read(hdu1);
+    }
 
-        if (dada_hdu_lock_read (hdu2) < 0){
-         fprintf(stderr, KRED "CONNECT FAILED\n" RESET);
+    if (dada_hdu_lock_read (hdu2) < 0){
+        fprintf(stderr, KRED "CONNECT FAILED\n" RESET);
     }
     fprintf (stderr, "YOLO\n");
     dada_hdu_unlock_read(hdu2);
@@ -155,25 +172,42 @@ void beamform(dada_hdu_t * hdu1, dada_hdu_t * hdu2)
 }
 
 void accumulate (unsigned char * incoming, uint8_t* accumulated, uint64_t size){
-    uint64_t accumulated_size = size/N_CHANS/2;
-    if (size/N_CHANS/2 % ACCUMULATE != 0){
+    //accumulate values in incoming
+
+    int num_vals = N_CHANS * N_POLS;  //Number of 8bit values per incoming spectra
+    int num_out_vals = num_vals * 2; //Number of 8bit values per outgoing accumulation
+
+    uint64_t num_spectra = size/num_vals;
+
+
+    if (num_spectra % ACCUMULATE != 0){
         fprintf(stderr, KRED "Accumulation period doesn't divide into dada_buffer size");
     }
     fprintf (stderr, "ACCUMULATE\n");
+
+    uint64_t num_accs = num_spectra / ACCUMULATE;
 
     accumulated = (uint8_t*)malloc(size * 2 / ACCUMULATE);
     memset(accumulated,0,size*2 / ACCUMULATE);
 
     int i, j, k;
     fprintf (stderr, "ACCUMULATE\n");
-    for (i = 0; i < accumulated_size; i= i + ACCUMULATE){
+
+    fprintf (stderr, "accumulated_size/ACCUMULATE = %d\n", ACCUMULATE);
+
+
+    //TODO, Need to deal with bit growth, if all values are 1 then accumulating 256
+    //will grow the number out of a uint8, should use a uint16 and shift right 8 bits after accumulation?
+    #pragma omp parallel for private(j) private(k)
+    for (i = 0; i < num_accs; i++){
         // accumulated[i] = (uint8_t*)malloc(sizeof(uint8_t) * N_CHANS * 2);
-        
+        int pos = i * ACCUMULATE;
         for (k = 0; k < ACCUMULATE; k++){
-            for (j = 0; j < N_CHANS; j++){
+            #pragma omp //parallel for
+            for (j = 0; j < num_vals; j++){
                 // fprintf (stderr, "i = %d, k = %d, j = %d\n", i, k, j);
-                accumulated[i * N_CHANS + 2 * j] += (incoming[(i + k) * N_CHANS + j] >> 4) & 15;
-                accumulated[i * N_CHANS + 2 * j + 1] += incoming[(i + k) * N_CHANS + j] & 15;
+                accumulated[i * num_out_vals + 2 * j] += (incoming[(i + k) * num_vals + j] >> 4) & 15; //REAL
+                accumulated[i * num_out_vals + 2 * j + 1] += incoming[(i + k) * num_vals + j] & 15; //IMAGINARY
             }
         }
     }
