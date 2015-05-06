@@ -148,7 +148,7 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2)
              // return EXIT_FAILURE;
         }
 
-        uint8_t* beamformed;
+        uint16_t* beamformed;
         
         buffer1 = ipcio_open_block_read(hdu1->data_block, &hdu1->data_block->curbufsz, &blockid);
 
@@ -176,19 +176,22 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2)
     }
 }
 
-void accumulate_and_beamform (unsigned char * incoming1, unsigned char * incoming2, uint8_t* beamformed, uint64_t size){
+void accumulate_and_beamform (unsigned char * incoming1, unsigned char * incoming2, uint16_t* beamformed, uint64_t size){
     uint8_t *  acc1, acc2;
-    // beamformed = (malloc()
+    int num_vals;
+    
     fprintf (stderr, "----------------BUFFER 1----------------\n");
-    accumulate(incoming1, acc1, size);
+    num_vals = accumulate(incoming1, acc1, size);
     fprintf (stderr, "----------------BUFFER 2----------------\n");
-    accumulate (incoming2, acc2, size);
+    accumulate (incoming2, acc2, num_vals);
+    fprintf (stderr, "----------------BEAMFORM----------------\n");
+    beamform ();
 }
 
-void beamform (u_int8_t * acc1, u_int8_t * acc2, u_int16_t * beamformed, uint64_t size){
+void beamform (u_int16_t * acc1, u_int16_t * acc2, u_int16_t * beamformed, uint64_t num_vals){
     int i;
-    beamformed = (uint16_t*)malloc(size * sizeof(uint16_t));
-    for (i = 0; i < size; i++)
+    beamformed = (uint16_t*)malloc(num_vals * sizeof(uint16_t));
+    for (i = 0; i < num_vals; i++)
     {
         beamformed[i] = acc1[i] + acc2[i];
     }
