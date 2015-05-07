@@ -18,6 +18,9 @@
 #define ACCUMULATE 256
 #define N_CHANS 1024
 #define N_POLS 2
+#define TIMESTAMPS_PER_HEAP 4
+#define BYTES_PER_SAMPLE 1
+#define TIMESTAMP_INCREMENT 2048
 
 #define KNRM  "\x1B[0m"
 #define KRED  "\x1B[31m"
@@ -111,27 +114,53 @@ void hexdump(unsigned char *buffer, unsigned long index, unsigned long width)
     }
 }
 
+unsigned long long get_timestamp(dada_hdu_t * hdu){
+    char* header;
+    uint64_t read;
+    header = ipcbuf_get_next_read (hdu->header_block, &read);
+    // fprintf (stderr, KGRN "read = %" PRIu64 "\n" RESET, read);
+    // hexdump (header, read, 16);
+    unsigned long long ts;
+    // char utcstart[64];
+    ascii_header_get(header, "TS", "%llu", &ts);
+    ipcbuf_mark_cleared(hdu->header_block);
+    return ts;
+}
+
+void initial_header(dada_hdu_t * hdu){
+    char* header;
+    uint64_t read;
+    header = ipcbuf_get_next_read (hdu->header_block, &read);
+    fprintf (stderr, KGRN "read = %" PRIu64 "\n" RESET, read);
+    // hexdump (header1, read, 16);
+    char utcstart[64];
+    ascii_header_get(header, "UTC_START", "%s", utcstart);
+    fprintf(stderr, "utcstart = %s\n", utcstart);
+
+    ipcbuf_mark_cleared(hdu->header_block);
+}
+
 void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2)
 {
+    unsigned long long ts1, ts2;
+
+    uint64_t heap_size = N_POLS * N_CHANS * BYTES_PER_SAMPLE * TIMESTAMPS_PER_HEAP;
+    uint64_t buffer_allignment = 13; //Never going to be 13, could be 0
+
+    dada_hdu_t ** alligned, ** missalligned;
+
     if (dada_hdu_lock_read (hdu1) < 0){
          fprintf(stderr, KRED "hdu1 CONNECT FAILED\n" RESET);
          // return EXIT_FAILURE;
     }
-    
 
-    fprintf (stderr, "yolo\n");
-    char* header1, buffer1, header2, buffer2;
-    fprintf (stderr, "yolo\n");
-    uint64_t read, read2;
-    uint64_t blockid, blockid2;
-    fprintf (stderr, KGRN "hdu1->header_block_key = %x\n" RESET, hdu1->header_block_key);
-    // ipcbuf_connect(hdu1->header_block, hdu1->header_block_key);
-    header1 = ipcbuf_get_next_read (hdu1->header_block, & read);
-    fprintf (stderr, KGRN "read = %" PRIu64 "\n" RESET, read);
-    // hexdump (header1, read, 16);
-    char utcstart[64];
-    ascii_header_get(header1, "UTC_START", "%s", utcstart);
-    fprintf(stderr, "utcstart = %s\n", utcstart);
+    if (dada_hdu_lock_read (hdu2) < 0){
+         fprintf(stderr, KRED "hdu1 CONNECT FAILED\n" RESET);
+         // return EXIT_FAILURE;
+    }
+    initial_header(hdu1);
+    initial_header(hdu2);
+    
     if (ipcio_is_open (hdu1->data_block)){
         fprintf (stderr, KGRN "OPEN\n" RESET);
     }
@@ -139,27 +168,78 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2)
     // fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", hdu1->data_block->curbufsz);
     while(1){
 
-        if (dada_hdu_lock_read (hdu1) < 0){
+        int init = 0;
+
+        if (buffer_allignment == 13){
+            ts1 = get_timestamp(hdu1);
+            ts2 = get_timestamp(hdu2);
+            
+
+            fprintf(stderr, "ts1 = %llu\n", ts1);
+            fprintf(stderr, "ts2 = %llu\n", ts2);
+
+            fprintf(stderr, KGRN "ts diff of %llu\n" RESET, ts2 - ts1);
+
+            if (ts1 > ts2){
+                buffer_allignment = (ts1-ts2)/TIMESTAMP_INCREMENT*heap_size;
+                alligned = &hdu2;
+                missalligned = &hdu1;
+            }
+            else{
+                buffer_allignment = (ts2-ts1)/TIMESTAMP_INCREMENT*heap_size;
+                alligned = &hdu1;
+                missalligned = &hdu2;
+            }
+            dada_hdu_unlock_read(hdu1);
+            dada_hdu_unlock_read(hdu2);
+        }
+
+        fprintf(stderr, KGRN "Buffer allignment of %llu\n" RESET, buffer_allignment);
+
+        if (dada_hdu_lock_read (*alligned) < 0){
             fprintf(stderr, KRED "CONNECT FAILED\n" RESET);
              // return EXIT_FAILURE;
         }
-        if (dada_hdu_lock_read (hdu2) < 0){
+        if (dada_hdu_lock_read (*missalligned) < 0){
             fprintf(stderr, KRED "CONNECT FAILED\n" RESET);
              // return EXIT_FAILURE;
         }
 
         uint16_t* beamformed;
-        
-        buffer1 = ipcio_open_block_read(hdu1->data_block, &hdu1->data_block->curbufsz, &blockid);
+        char* buffer1, *buffer2;
+        void * align_buffer;
+        uint64_t blockid1, blockid2;
+        fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
 
-        buffer2 = ipcio_open_block_read(hdu2->data_block, &hdu2->data_block->curbufsz, &blockid2);
+        buffer1 = ipcio_open_block_read((*alligned)->data_block, &((*alligned)->data_block->curbufsz), &blockid1);
+
+        buffer2 = ipcio_open_block_read((*missalligned)->data_block, &((*missalligned)->data_block->curbufsz), &blockid2);
+
+        fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
+
+        fprintf(stderr, "YOLO\n");
+
+        // if (init == 0){ //first buffer
+            fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
+            align_buffer = (char*)malloc((*missalligned)->data_block->curbufsz);
+            fprintf(stderr, "YOLOin\n");
+            memset(align_buffer, 0, (*missalligned)->data_block->curbufsz);
+            fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
+            init = 1;
+        // }
+
+        fprintf(stderr, "YOLO\n");
+
+        memcpy (align_buffer + buffer_allignment, (*missalligned)->data_block->curbuf, (*missalligned)->data_block->curbufsz - buffer_allignment);
 
         clock_t start = clock(), diff;
 
         double wstart = omp_get_wtime();
 
-        accumulate_and_beamform (hdu1->data_block->curbuf, hdu2->data_block->curbuf, beamformed, hdu1->data_block->curbufsz);
+        accumulate_and_beamform ((*alligned)->data_block->curbuf, align_buffer, beamformed, (*alligned)->data_block->curbufsz);
         // accumulate (buffer1, accumulated, hdu1->data_block->curbufsz);
+
+        memcpy (align_buffer, (*missalligned)->data_block->curbuf + (*missalligned)->data_block->curbufsz - buffer_allignment, buffer_allignment);
 
         diff = clock() - start;
         double wdiff = omp_get_wtime() - wstart; 
@@ -168,16 +248,21 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2)
         fprintf(stderr, "Wall time taken %f seconds\n", wdiff);
         fprintf(stderr, KGRN "Speed up of %f\n" RESET, diff/1000000/wdiff);
 
-        ssize_t size =  ipcio_close_block_read(hdu1->data_block, hdu1->data_block->curbufsz);
-        dada_hdu_unlock_read(hdu1);
+        ssize_t size =  ipcio_close_block_read((*alligned)->data_block, (*alligned)->data_block->curbufsz);
+        dada_hdu_unlock_read((*alligned));
 
-        size =  ipcio_close_block_read(hdu2->data_block, hdu2->data_block->curbufsz);
-        dada_hdu_unlock_read(hdu2);
+        size =  ipcio_close_block_read((*missalligned)->data_block, (*missalligned)->data_block->curbufsz);
+        dada_hdu_unlock_read((*missalligned));
+
+        free(align_buffer);
+        free(beamformed);
+        // free(buffer1);
+        // free(buffer2);
     }
 }
 
 void accumulate_and_beamform (unsigned char * incoming1, unsigned char * incoming2, uint16_t* beamformed, uint64_t size){
-    uint8_t *  acc1, acc2;
+    uint8_t *  acc1, * acc2;
     int num_vals;
     
     fprintf (stderr, "----------------BUFFER 1----------------\n");
@@ -185,7 +270,10 @@ void accumulate_and_beamform (unsigned char * incoming1, unsigned char * incomin
     fprintf (stderr, "----------------BUFFER 2----------------\n");
     accumulate (incoming2, acc2, num_vals);
     fprintf (stderr, "----------------BEAMFORM----------------\n");
-    beamform ();
+    beamform (acc1, acc2, beamformed, num_vals);
+
+    free(acc1);
+    free(acc2);
 }
 
 void beamform (u_int16_t * acc1, u_int16_t * acc2, u_int16_t * beamformed, uint64_t num_vals){
@@ -205,8 +293,6 @@ int accumulate (unsigned char * incoming, uint16_t* accumulated, uint64_t size){
     // int num_out_vals = num_vals * 4; //Number of 8bit values per outgoing accumulation
 
     uint64_t num_spectra = size/num_vals;
-    
-
 
     if (num_spectra % ACCUMULATE != 0){
         fprintf(stderr, KRED "Accumulation period doesn't divide into dada_buffer size");

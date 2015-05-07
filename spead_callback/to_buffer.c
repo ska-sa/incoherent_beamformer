@@ -269,6 +269,7 @@ struct snap_shot
     int master_pid;
     char* buffer; //global pointer to current buffer (NOT NECESSARY?)
     unsigned long long prior_ts; //first ts for this buffer
+    unsigned long long prev_prior_ts;
     int buffer_created;  //Is the buffer full (NOTNECESSARY?)
     int buffer_connected;
     int first_thread;
@@ -524,6 +525,28 @@ int simple_writer_open (dada_hdu_t * hdu)
 
 int count;
 
+void set_timestamp_header(dada_hdu_t * hdu, unsigned long long ts){
+  // get the size of each header block
+  uint64_t header_size = ipcbuf_get_bufsz (hdu->header_block);
+  char buffer[64];
+
+  // get a pointer to the header block
+  char * header = ipcbuf_get_next_write (hdu->header_block);
+  if (! header )
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not get next header block\n");
+    fprintf(stderr, KRED "Could not get next header block\n" RESET);
+  }
+
+  if (ascii_header_set (header, "TS", "%llu", ts) < 0)
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not write TELESCOPE to header\n");
+    fprintf(stderr, KRED "Could not write TELESCOPE to header\n" RESET);
+  }
+
+  ipcbuf_mark_filled (hdu->header_block, header_size);
+}
+
 int dadaThread(struct spead_api_module_shared *s)
 {
     count = 0;
@@ -579,6 +602,12 @@ int dadaThread(struct spead_api_module_shared *s)
     fprintf(stderr, KGRN "WAITING FOR SIGNAL\n" RESET);
     sigwait(&sset, &sig);
     fprintf(stderr, KGRN "SIGNAL RECIEVED\n" RESET);
+
+    struct snap_shot *ss;
+
+    ss = get_data_spead_api_module_shared(s);
+
+    // set_timestamp_header(hdu, ss->prev_prior_ts);
     // int count = 0;
     while(sig != SIGINT){
         
@@ -592,6 +621,7 @@ int dadaThread(struct spead_api_module_shared *s)
         if (sig == SIGUSR2){
             ipcio_close_block_write (hdu->data_block, dadaBufSize);
             uint64_t block_id;
+            set_timestamp_header(hdu, ss->prev_prior_ts);
             buffer = ipcio_open_block_write (hdu->data_block, &block_id);
             fprintf(stderr, KGRN "NEXT BUFFER\n" RESET);
 
@@ -915,6 +945,7 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
             if (offset >= dadaBufSize){  //If the offset is greater than a DADA buffer, we need to open a new buffer and reset counters
                 int ret = kill(ss->parentPID,SIGUSR2);
                 fprintf (stderr, KRED "SIGNAL SENT\n" RESET);
+                ss->prev_prior_ts = ss->prior_ts;
                 unsigned long long add = numHeapsPerBuf * timestampIncrement; //How much to add to the timstamp
                 ss->prior_ts = (ss->prior_ts + add) % ULLONG_MAX;  //New prior_ts
                 prior_ts = ss->prior_ts;
