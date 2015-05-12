@@ -619,9 +619,11 @@ int dadaThread(struct spead_api_module_shared *s)
         }
 
         if (sig == SIGUSR2){
+            fprintf(stderr, KGRN "GETTING BUFFER\n" RESET);
             ipcio_close_block_write (hdu->data_block, dadaBufSize);
             uint64_t block_id;
             set_timestamp_header(hdu, ss->prev_prior_ts);
+            
             buffer = ipcio_open_block_write (hdu->data_block, &block_id);
             fprintf(stderr, KGRN "NEXT BUFFER\n" RESET);
 
@@ -634,9 +636,10 @@ int dadaThread(struct spead_api_module_shared *s)
 
         }
         sigwait(&sset, &sig);
-        if (count % 1000 == 0){
-        // fprintf(stderr, KYEL "After sig\n" RESET);
-    }
+        // fprintf(stderr, KGRN "SIGNAL RECIEVED\n" RESET);
+    //     if (count % 1000 == 0){
+    //     // fprintf(stderr, KYEL "After sig\n" RESET);
+    // }
 
         // if (sig == SIGINT){
         //     fprintf (stderr, KRED "recieved interupt" RESET);
@@ -866,7 +869,7 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
     struct snap_shot *ss;
     struct spead_api_item *itm;
     unsigned long long ts;
-    unsigned long long offset;
+    long long offset;
 
     ss = get_data_spead_api_module_shared(s); //Get shared data module
     itm = NULL;
@@ -930,8 +933,17 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
 
         if (prior_ts < ss->prior_ts)
             prior_ts = ss->prior_ts;
+        else if (ss->prior_ts <= numHeapsPerBuf * timestampIncrement)
+          prior_ts = ss->prior_ts;
 
         offset = (ts - prior_ts) / timestampIncrement * expectedHeapLen;
+
+        if (offset < 0){
+          fprintf(stderr, KRED "late heap, dropped\n" RESET);
+          unlock_spead_api_module_shared(s);
+          return 0;
+        }
+
         // fprintf(stderr, KGRN "[%d] TO_ORDER_BUFFER\n" RESET, getpid());
         write_to_order_buffer(itm->i_data, offset);  //Copy data to buffer
         // lock_spead_api_module_shared(s);
@@ -945,6 +957,9 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
             if (offset >= dadaBufSize){  //If the offset is greater than a DADA buffer, we need to open a new buffer and reset counters
                 int ret = kill(ss->parentPID,SIGUSR2);
                 fprintf (stderr, KRED "SIGNAL SENT\n" RESET);
+                fprintf (stderr, KYEL "check = %lld, obSegment * 2 = %llu\n" RESET, check, obSegment * 2);
+                fprintf (stderr, KYEL "offset = %llu, ss->order_buffer_tail = %llu\n" RESET, offset, ss->order_buffer_tail);
+                fprintf (stderr, KYEL "ts = %lld, prior_ts = %llu\n" RESET, ts, prior_ts);
                 ss->prev_prior_ts = ss->prior_ts;
                 unsigned long long add = numHeapsPerBuf * timestampIncrement; //How much to add to the timstamp
                 ss->prior_ts = (ss->prior_ts + add) % ULLONG_MAX;  //New prior_ts

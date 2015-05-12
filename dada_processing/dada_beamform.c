@@ -74,10 +74,15 @@ void connect_to_buffer (dada_hdu_t ** hdu, unsigned int dada_buf_key){
 
     // uint64_t block_id;
     // buffer = ipcio_open_block_read (hdu->data_block, 2147483648,  &block_id);
-
-
 }
 
+/**
+ * Write contents of a buffer in hex with ascii characters.
+ * Essentially designed to look like tcpdump output.
+ * @param pointer buffer        Buffer to be written
+ * @param unsigned long index   Number of bytes to write
+ * @param unsigned long width   Width of each line in bytes
+ */
 void hexdump(unsigned char *buffer, unsigned long index, unsigned long width)
 {
     unsigned long i = 0;
@@ -248,6 +253,9 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2)
         fprintf(stderr, "Wall time taken %f seconds\n", wdiff);
         fprintf(stderr, KGRN "Speed up of %f\n" RESET, diff/1000000/wdiff);
 
+        ts1 = get_timestamp((*alligned));
+        ts2 = get_timestamp((*missalligned));
+
         ssize_t size =  ipcio_close_block_read((*alligned)->data_block, (*alligned)->data_block->curbufsz);
         dada_hdu_unlock_read((*alligned));
 
@@ -262,8 +270,12 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2)
 }
 
 void accumulate_and_beamform (unsigned char * incoming1, unsigned char * incoming2, uint16_t* beamformed, uint64_t size){
-    uint8_t *  acc1, * acc2;
+    uint16_t *  acc1, * acc2;
     int num_vals;
+
+    uint64_t num_out_vals = size / N_CHANS * N_POLS * N_CHANS * 4 / ACCUMULATE;
+    acc1 = (uint16_t*)malloc(num_out_vals * sizeof(uint16_t));
+    acc2 = (uint16_t*)malloc(num_out_vals * sizeof(uint16_t));
     
     fprintf (stderr, "----------------BUFFER 1----------------\n");
     num_vals = accumulate(incoming1, acc1, size);
@@ -303,7 +315,7 @@ int accumulate (unsigned char * incoming, uint16_t* accumulated, uint64_t size){
 
     uint64_t num_accs = num_spectra / ACCUMULATE;
 
-    accumulated = (uint16_t*)malloc(num_out_vals * sizeof(uint16_t));
+    // accumulated = (uint16_t*)malloc(num_out_vals * sizeof(uint16_t));
     memset(accumulated,0,num_out_vals * sizeof(uint16_t));
 
     int i, j, k;

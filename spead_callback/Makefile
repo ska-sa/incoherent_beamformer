@@ -15,4 +15,4 @@ pps:
 	gcc pps_test.c -fPIC -shared -Wl,-x -I/home/frb/incoherent_beamformer/dada_testing -I/home/frb/spead-master/src -I/usr/local/include -L./libs -lOpenCL -lm -ldada_buffer -lspead -DIKATCP -o pps_test.so
 
 ave:
-	gcc ave_beamformer.c -fPIC -shared -Wl,-x -I/home/kat/git/spead/src/ -L/home/kat/git/incoherent_beamformer/spead_callback/libs -lOpenCL -lm -lspead -DIKATCP -o ave_beamformer.so
+	gcc ave_beamformer.c -fPIC -shared -Wl,-x -I/home/kat/git/spead/src/ -L/home/kat/git/incoherent_beamformer/spead_callback/libs -lOpenCL -lm -lspead -DIKATCP -fopenmp -o ave_beamformer.so
