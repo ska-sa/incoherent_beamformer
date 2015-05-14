@@ -57,6 +57,7 @@
 #define DADA_NUM_BUFS 8
 #define NUM_HEAPS_PER_BUFFER 32
 #define NUM_HEAPS_PER_ORDER_BUF 8
+#define MAX_TS 1099511627776
 
 #define TIMESTAMPS_PER_HEAP 1
 #define TIMESTAMP_INCREMENT 512
@@ -931,15 +932,18 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
             order_buffer_tail = 0;
         }
 
-        if (prior_ts < ss->prior_ts)
+        if (prior_ts != ss->prior_ts)
             prior_ts = ss->prior_ts;
-        else if (ss->prior_ts <= numHeapsPerBuf * timestampIncrement)
-          prior_ts = ss->prior_ts;
-
-        offset = (ts - prior_ts) / timestampIncrement * expectedHeapLen;
+        
+        if (ts <= numHeapsPerBuf * timestampIncrement && prior_ts > numHeapsPerBuf * timestampIncrement)
+          offset = (MAX_TS - prior_ts + ts) / timestampIncrement * expectedHeapLen;
+        else
+          offset = (ts - prior_ts) / timestampIncrement * expectedHeapLen;
 
         if (offset < 0){
           fprintf(stderr, KRED "late heap, dropped\n" RESET);
+          fprintf (stderr, KYEL "offset = %llu, ss->order_buffer_tail = %llu\n" RESET, offset, ss->order_buffer_tail);
+          fprintf (stderr, KYEL "ts = %lld, prior_ts = %llu\n" RESET, ts, prior_ts);
           unlock_spead_api_module_shared(s);
           return 0;
         }
@@ -962,7 +966,7 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
                 fprintf (stderr, KYEL "ts = %lld, prior_ts = %llu\n" RESET, ts, prior_ts);
                 ss->prev_prior_ts = ss->prior_ts;
                 unsigned long long add = numHeapsPerBuf * timestampIncrement; //How much to add to the timstamp
-                ss->prior_ts = (ss->prior_ts + add) % ULLONG_MAX;  //New prior_ts
+                ss->prior_ts = (ss->prior_ts + add) % (MAX_TS + 1);  //New prior_ts
                 prior_ts = ss->prior_ts;
                 offset = (ts - prior_ts) / timestampIncrement * expectedHeapLen;
             }
