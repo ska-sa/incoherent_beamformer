@@ -7,7 +7,22 @@
 #include <limits.h>
 #include <omp.h>
 #include <time.h>
+#include  <signal.h>
 
+//SPEAD stuff
+#include <iostream>
+#include <utility>
+#include <endian.h>
+#include <boost/asio.hpp>
+#include "spead2/common_defines.h"
+#include "spead2/common_thread_pool.h"
+
+#include "spead2/common_flavour.h"
+#include "spead2/send_heap.h"
+#include "spead2/send_udp.h"
+#include "spead2/send_stream.h"
+
+//DADA stuff
 #include "dada_hdu.h"
 #include "dada_def.h"
 #include "ascii_header.h"
@@ -22,6 +37,9 @@
 #define BYTES_PER_SAMPLE 1
 #define TIMESTAMP_INCREMENT 2048
 
+#define DEST_PORT 7654
+#define DEST_IP "localhost"
+
 #define KNRM  "\x1B[0m"
 #define KRED  "\x1B[31m"
 #define KGRN  "\x1B[32m"
@@ -32,8 +50,11 @@
 #define KWHT  "\x1B[37m"
 #define RESET "\033[0m"
 
+using boost::asio::ip::udp;
+
 ipcbuf_t* data_block_1, data_block_2; 
 key_t key_1, key_2;
+spead2::send::udp_stream * stream_p;
 
 void connect_to_buffer (dada_hdu_t ** hdu, unsigned int dada_buf_key){
     fprintf(stderr, "yo\n");
@@ -219,7 +240,7 @@ int accumulate (char * incoming, uint16_t* accumulated, uint64_t size){
 
 void beamform (u_int16_t * acc1, u_int16_t * acc2, u_int16_t * beamformed, uint64_t num_vals){
     int i;
-    beamformed = (uint16_t*)malloc(num_vals * sizeof(uint16_t));
+    // beamformed = (uint16_t*)malloc(num_vals * sizeof(uint16_t));
     for (i = 0; i < num_vals; i++)
     {
         beamformed[i] = acc1[i] + acc2[i];
@@ -245,8 +266,116 @@ void accumulate_and_beamform (char * incoming1, char * incoming2, uint16_t* beam
     free(acc2);
 }
 
+/**
+ * Send out beamformed data in a spead stream
+ * @beamformed array of accumulated and beamformed data
+ * @ts timestamp for this heap
+ * @ts num_vals number of values in beamformed array
+ * @tp spead2 stream for sending data
+ */
+// void spead_out(uint16_t * beamformed, unsigned long long ts, uint64_t num_vals, spead2::send::udp_stream * stream)
+// {
+//     fprintf (stderr, KRED "YOHO\n" RESET);
+//     //SPEAD STREAM SET UP
+
+//     fprintf (stderr, KGRN "HEY\n" RESET);
+
+//     spead2::flavour f(spead2::maximum_version, 64, 48, spead2::BUG_COMPAT_PYSPEAD_0_5_2);
+//     spead2::send::heap h(0x2, f);
+//     spead2::descriptor desc1;
+//     desc1.id = 0x1000;
+//     desc1.name = "ADC_COUNT";
+//     desc1.description = "a scalar int";
+//     desc1.format.emplace_back('i', 64);
+
+//     fprintf (stderr, KGRN "HEY\n" RESET);
+
+//     spead2::descriptor desc2;
+//     desc2.id = 0x1001;
+//     desc2.name = "DATA";
+//     desc2.description = "a 1D array of beamformed data";
+//     char buffer[64];
+//     sprintf(buffer, "{'shape': (%llu), 'fortran_order': False, 'descr': 'i2'}", num_vals);
+//     desc2.numpy_header = buffer;
+
+//     fprintf (stderr, KGRN "num_vals = %llu\n" RESET, num_vals);
+//     h.add_item(0x1000, &ts, sizeof(unsigned long long), true);
+//     h.add_item(0x1001, beamformed, sizeof(uint16_t) * num_vals, true);
+//     h.add_descriptor(desc1);
+//     h.add_descriptor(desc2);
+
+//     fprintf (stderr, KYEL "sizeof(uint16_t) * num_vals = %llu\n", sizeof(uint16_t) * num_vals);
+
+//     (*stream).async_send_heap(h, [] (const boost::system::error_code &ec, spead2::item_pointer_t bytes_transferred)
+//     {
+//         if (ec)
+//             std::cerr << ec.message() << '\n';
+//         else
+//             std::cout << "Sent " << bytes_transferred << " bytes in heap\n";
+//     });
+
+//     // spead2::send::heap end(0x3, f);
+//     // end.add_end();
+//     // stream.async_send_heap(end, [] (const boost::system::error_code &ec, spead2::item_pointer_t bytes_transferred) {});
+//     (*stream).flush();
+// }
+void spead_out(uint16_t * beamformed, unsigned long long ts, uint64_t num_vals, spead2::send::udp_stream * stream)
+{
+    fprintf (stderr, KRED "YOHO\n" RESET);
+    //SPEAD STREAM SET UP
+
+    fprintf (stderr, KGRN "HEY\n" RESET);
+
+    spead2::flavour f(spead2::maximum_version, 64, 48, spead2::BUG_COMPAT_PYSPEAD_0_5_2);
+    spead2::send::heap h(0x2, f);
+    spead2::descriptor desc1;
+    desc1.id = 0x1000;
+    desc1.name = "ADC_COUNT";
+    desc1.description = "a scalar int";
+    desc1.format.emplace_back('i', 64);
+
+    fprintf (stderr, KGRN "HEY\n" RESET);
+
+    spead2::descriptor desc2;
+    desc2.id = 0x1001;
+    desc2.name = "DATA";
+    desc2.description = "a 1D array of beamformed data";
+    char buffer[64];
+    sprintf(buffer, "{'shape': (%llu), 'fortran_order': False, 'descr': 'i2'}", num_vals);
+    desc2.numpy_header = buffer;
+
+    fprintf (stderr, KGRN "num_vals = %llu\n" RESET, num_vals);
+    h.add_item(0x1000, &ts, sizeof(unsigned long long), true);
+    h.add_item(0x1001, beamformed, sizeof(uint16_t) * num_vals, true);
+    h.add_descriptor(desc1);
+    h.add_descriptor(desc2);
+
+    fprintf (stderr, KYEL "sizeof(uint16_t) * num_vals = %llu\n" RESET, sizeof(uint16_t) * num_vals);
+
+    (*stream).async_send_heap(h, [] (const boost::system::error_code &ec, spead2::item_pointer_t bytes_transferred)
+    {
+        if (ec)
+            std::cerr << ec.message() << '\n';
+        else
+            std::cout << "Sent " << bytes_transferred << " bytes in heap\n";
+    });
+
+    // spead2::send::heap end(0x3, f);
+    // end.add_end();
+    // (*stream).async_send_heap(end, [] (const boost::system::error_code &ec, spead2::item_pointer_t bytes_transferred) {});
+    (*stream).flush();
+}
+
 void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2)
 {
+
+    spead2::thread_pool tp;
+    udp::resolver resolver(tp.get_io_service());
+    udp::resolver::query query("192.168.64.217", "8888");
+    auto it = resolver.resolve(query);
+    spead2::send::udp_stream stream(tp.get_io_service(), *it, spead2::send::stream_config(9000,  67108864 * 1.5));
+    stream_p = &stream;
+
     unsigned long long ts1, ts2;
 
     uint64_t heap_size = N_POLS * N_CHANS * BYTES_PER_SAMPLE * TIMESTAMPS_PER_HEAP;
@@ -335,17 +464,20 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2)
 
         fprintf(stderr, "YOLO\n");
 
+        fprintf(stderr, "buffer_allignment = %llu. (*missalligned)->data_block->curbufsz = %" PRIu64 " (*missalligned)->data_block->curbufsz - buffer_allignment = %llu\n", buffer_allignment, (*missalligned)->data_block->curbufsz, (*missalligned)->data_block->curbufsz - buffer_allignment);
+
         memcpy (align_buffer + buffer_allignment, (*missalligned)->data_block->curbuf, (*missalligned)->data_block->curbufsz - buffer_allignment);
 
         clock_t start = clock(), diff;
 
         double wstart = omp_get_wtime();
+        beamformed = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
 
         accumulate_and_beamform ((*alligned)->data_block->curbuf, align_buffer, beamformed, (*alligned)->data_block->curbufsz);
         // accumulate (buffer1, accumulated, hdu1->data_block->curbufsz);
 
         memcpy (align_buffer, (*missalligned)->data_block->curbuf + (*missalligned)->data_block->curbufsz - buffer_allignment, buffer_allignment);
-
+        int num_out_vals = (*alligned)->data_block->curbufsz / N_CHANS * N_POLS * N_CHANS * 4 / ACCUMULATE;
         diff = clock() - start;
         double wdiff = omp_get_wtime() - wstart; 
         int msec = diff * 1000 / CLOCKS_PER_SEC;
@@ -362,6 +494,11 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2)
         size =  ipcio_close_block_read((*missalligned)->data_block, (*missalligned)->data_block->curbufsz);
         dada_hdu_unlock_read((*missalligned));
 
+        
+        fprintf (stderr, KRED "num_out_vals = %llu\n" RESET, num_out_vals);
+        spead_out (beamformed, ts1, num_out_vals, &stream);
+        fprintf (stderr, KGRN "out\n" RESET);
+
         free(align_buffer);
         free(beamformed);
         // free(buffer1);
@@ -369,9 +506,21 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2)
     }
 }
 
+void INThandler(int sig){
+    fprintf(stderr, "Sending end of stream packet\n");
+    spead2::flavour f(spead2::maximum_version, 64, 48, spead2::BUG_COMPAT_PYSPEAD_0_5_2);
+    spead2::send::heap end(0x3, f);
+    end.add_end();
+    (*stream_p).async_send_heap(end, [] (const boost::system::error_code &ec, spead2::item_pointer_t bytes_transferred) {});
+    (*stream_p).flush();
+    fprintf(stderr, "Exiting Cleanly\n");
+    exit(0);
+}
+
 int main (int argc, char **argv)
 {
     fprintf(stderr, "yo\n");
+    signal(SIGINT, INThandler);
     dada_hdu_t * hdu1;
     dada_hdu_t * hdu2;
     connect_to_buffer(&hdu1, DADA_BUF_1);
