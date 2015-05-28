@@ -9,7 +9,9 @@
 #include <time.h>
 #include  <signal.h>
 
-//SPEAD stuff
+#include "dada_beamform.h"
+
+//SPEAD send stuff
 #include <iostream>
 #include <utility>
 #include <endian.h>
@@ -22,23 +24,13 @@
 #include "spead2/send_udp.h"
 #include "spead2/send_stream.h"
 
-//DADA stuff
-#include "dada_hdu.h"
-#include "dada_def.h"
-#include "ascii_header.h"
-
-#define DADA_BUF_1 0x1234
-#define DADA_BUF_2 0x2345
-
-#define ACCUMULATE 256
-#define N_CHANS 1024
-#define N_POLS 2
-#define TIMESTAMPS_PER_HEAP 4
-#define BYTES_PER_SAMPLE 1
-#define TIMESTAMP_INCREMENT 2048
-
-#define DEST_PORT 7654
-#define DEST_IP "localhost"
+//SPEAD recieve stuff
+// #include "common_thread_pool.h"
+// #include <chrono>
+#include "spead2/recv_udp.h"
+#include "spead2/recv_heap.h"
+#include "spead2/recv_live_heap.h"
+#include "spead2/recv_ring_stream.h"
 
 #define KNRM  "\x1B[0m"
 #define KRED  "\x1B[31m"
@@ -273,52 +265,6 @@ void accumulate_and_beamform (char * incoming1, char * incoming2, uint16_t* beam
  * @ts num_vals number of values in beamformed array
  * @tp spead2 stream for sending data
  */
-// void spead_out(uint16_t * beamformed, unsigned long long ts, uint64_t num_vals, spead2::send::udp_stream * stream)
-// {
-//     fprintf (stderr, KRED "YOHO\n" RESET);
-//     //SPEAD STREAM SET UP
-
-//     fprintf (stderr, KGRN "HEY\n" RESET);
-
-//     spead2::flavour f(spead2::maximum_version, 64, 48, spead2::BUG_COMPAT_PYSPEAD_0_5_2);
-//     spead2::send::heap h(0x2, f);
-//     spead2::descriptor desc1;
-//     desc1.id = 0x1000;
-//     desc1.name = "ADC_COUNT";
-//     desc1.description = "a scalar int";
-//     desc1.format.emplace_back('i', 64);
-
-//     fprintf (stderr, KGRN "HEY\n" RESET);
-
-//     spead2::descriptor desc2;
-//     desc2.id = 0x1001;
-//     desc2.name = "DATA";
-//     desc2.description = "a 1D array of beamformed data";
-//     char buffer[64];
-//     sprintf(buffer, "{'shape': (%llu), 'fortran_order': False, 'descr': 'i2'}", num_vals);
-//     desc2.numpy_header = buffer;
-
-//     fprintf (stderr, KGRN "num_vals = %llu\n" RESET, num_vals);
-//     h.add_item(0x1000, &ts, sizeof(unsigned long long), true);
-//     h.add_item(0x1001, beamformed, sizeof(uint16_t) * num_vals, true);
-//     h.add_descriptor(desc1);
-//     h.add_descriptor(desc2);
-
-//     fprintf (stderr, KYEL "sizeof(uint16_t) * num_vals = %llu\n", sizeof(uint16_t) * num_vals);
-
-//     (*stream).async_send_heap(h, [] (const boost::system::error_code &ec, spead2::item_pointer_t bytes_transferred)
-//     {
-//         if (ec)
-//             std::cerr << ec.message() << '\n';
-//         else
-//             std::cout << "Sent " << bytes_transferred << " bytes in heap\n";
-//     });
-
-//     // spead2::send::heap end(0x3, f);
-//     // end.add_end();
-//     // stream.async_send_heap(end, [] (const boost::system::error_code &ec, spead2::item_pointer_t bytes_transferred) {});
-//     (*stream).flush();
-// }
 void spead_out(uint16_t * beamformed, unsigned long long ts, uint64_t num_vals, spead2::send::udp_stream * stream)
 {
     fprintf (stderr, KRED "YOHO\n" RESET);
@@ -519,7 +465,6 @@ void INThandler(int sig){
 
 int main (int argc, char **argv)
 {
-    fprintf(stderr, "yo\n");
     signal(SIGINT, INThandler);
     dada_hdu_t * hdu1;
     dada_hdu_t * hdu2;
