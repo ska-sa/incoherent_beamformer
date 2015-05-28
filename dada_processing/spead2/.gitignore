@@ -1,0 +1,4 @@
+*.o
+test_recv
+test_send
+libspead2.a
