@@ -463,12 +463,12 @@ void INThandler(int sig){
     exit(0);
 }
 
-int main (int argc, char **argv)
-{
-    signal(SIGINT, INThandler);
-    dada_hdu_t * hdu1;
-    dada_hdu_t * hdu2;
-    connect_to_buffer(&hdu1, DADA_BUF_1);
-    connect_to_buffer(&hdu2, DADA_BUF_2);
-    consume(hdu1,hdu2);
-}
+// int main (int argc, char **argv)
+// {
+//     signal(SIGINT, INThandler);
+//     dada_hdu_t * hdu1;
+//     dada_hdu_t * hdu2;
+//     connect_to_buffer(&hdu1, DADA_BUF_1);
+//     connect_to_buffer(&hdu2, DADA_BUF_2);
+//     consume(hdu1,hdu2);
+// }

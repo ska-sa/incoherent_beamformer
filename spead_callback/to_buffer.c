@@ -270,7 +270,8 @@ struct snap_shot
     int master_pid;
     char* buffer; //global pointer to current buffer (NOT NECESSARY?)
     unsigned long long prior_ts; //first ts for this buffer
-    unsigned long long prev_prior_ts;
+    unsigned long long prev_prior_ts[10];
+    int ppts_pos;
     int buffer_created;  //Is the buffer full (NOTNECESSARY?)
     int buffer_connected;
     int first_thread;
@@ -610,6 +611,9 @@ int dadaThread(struct spead_api_module_shared *s)
 
     // set_timestamp_header(hdu, ss->prev_prior_ts);
     // int count = 0;
+    // 
+    unsigned long long prev_ts;
+    int ppts_pos = 0;
     while(sig != SIGINT){
         
 
@@ -623,7 +627,12 @@ int dadaThread(struct spead_api_module_shared *s)
             fprintf(stderr, KGRN "GETTING BUFFER\n" RESET);
             ipcio_close_block_write (hdu->data_block, dadaBufSize);
             uint64_t block_id;
-            set_timestamp_header(hdu, ss->prev_prior_ts);
+
+            fprintf(stderr, KRED "ss->prev_prior_ts : %llu\n" RESET, ss->prev_prior_ts);
+            fprintf(stderr, KRED "diff : %llu\n" RESET, ss->prev_prior_ts - prev_ts);
+            set_timestamp_header(hdu, ss->prev_prior_ts[ppts_pos]);
+            ppts_pos = (ppts_pos + 1) % 10;
+            prev_ts = ss->prev_prior_ts;
             
             buffer = ipcio_open_block_write (hdu->data_block, &block_id);
             fprintf(stderr, KGRN "NEXT BUFFER\n" RESET);
@@ -700,6 +709,8 @@ void *spead_api_setup(struct spead_api_module_shared *s)
         ss->prior_ts = 0;
         ss->first_thread = 0;
         ss->numHeaps = 0;
+        ss-> ppts_pos = 0;
+        // ss->prev_prior_ts = (unsigned long long)maloc(sizeof(unsigned long long) * 10);
 
         if (ss->buffer_created == 0){
             ss->buffer_created == 1;
@@ -964,7 +975,8 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
                 fprintf (stderr, KYEL "check = %lld, obSegment * 2 = %llu\n" RESET, check, obSegment * 2);
                 fprintf (stderr, KYEL "offset = %llu, ss->order_buffer_tail = %llu\n" RESET, offset, ss->order_buffer_tail);
                 fprintf (stderr, KYEL "ts = %lld, prior_ts = %llu\n" RESET, ts, prior_ts);
-                ss->prev_prior_ts = ss->prior_ts;
+                ss->prev_prior_ts[ss->ppts_pos] = ss->prior_ts;
+                ss->ppts_pos= (ss->ppts_pos+1) % 10;
                 unsigned long long add = numHeapsPerBuf * timestampIncrement; //How much to add to the timstamp
                 ss->prior_ts = (ss->prior_ts + add) % (MAX_TS + 1);  //New prior_ts
                 prior_ts = ss->prior_ts;
