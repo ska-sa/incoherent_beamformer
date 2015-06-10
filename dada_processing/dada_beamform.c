@@ -317,7 +317,7 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2)
 
     spead2::thread_pool tp;
     udp::resolver resolver(tp.get_io_service());
-    udp::resolver::query query("192.168.64.217", "8888");
+    udp::resolver::query query("192.168.64.217", "7162");
     auto it = resolver.resolve(query);
     spead2::send::udp_stream stream(tp.get_io_service(), *it, spead2::send::stream_config(9000,  67108864 * 1.5));
     stream_p = &stream;
