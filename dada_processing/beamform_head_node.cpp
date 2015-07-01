@@ -114,32 +114,32 @@ void bf_align (uint16_t * beam, uint16_t * align, uint64_t num_vals, uint64_t po
 static void run_ringbuffered(int port1, int port2, int port3, dada_hdu_t * hdu)
 {
     spead2::thread_pool worker;
-    // std::shared_ptr<spead2::memory_pool> pool = std::make_shared<spead2::memory_pool>(16384, 26214400, 12, 8);
+    std::shared_ptr<spead2::memory_pool> pool = std::make_shared<spead2::memory_pool>(16384, 26214400, 12, 8);
 
-    spead2::recv::ring_stream<spead2::ringbuffer_semaphore<spead2::recv::live_heap> > stream1(worker, 512);
-    // spead2::recv::ring_stream<spead2::ringbuffer_semaphore<spead2::recv::live_heap> > stream2(worker, 512);
-    // spead2::recv::ring_stream<spead2::ringbuffer_semaphore<spead2::recv::live_heap> > stream3(worker, 512);
+    spead2::recv::ring_stream<spead2::ringbuffer_semaphore<spead2::recv::live_heap> > stream1(worker, 1024);
+    spead2::recv::ring_stream<spead2::ringbuffer_semaphore<spead2::recv::live_heap> > stream2(worker, 1024);
+    spead2::recv::ring_stream<spead2::ringbuffer_semaphore<spead2::recv::live_heap> > stream3(worker, 1024);
 
-    // stream1.set_memory_pool(pool);
-    // stream2.set_memory_pool(pool);
-    // stream3.set_memory_pool(pool);
+    stream1.set_memory_pool(pool);
+    stream2.set_memory_pool(pool);
+    stream3.set_memory_pool(pool);
 
     boost::asio::ip::udp::endpoint endpoint1(boost::asio::ip::address_v4::any(), 7161);
-    // boost::asio::ip::udp::endpoint endpoint2(boost::asio::ip::address_v4::any(), 7162);
-    // boost::asio::ip::udp::endpoint endpoint3(boost::asio::ip::address_v4::any(), 7163);
+    boost::asio::ip::udp::endpoint endpoint2(boost::asio::ip::address_v4::any(), 7162);
+    boost::asio::ip::udp::endpoint endpoint3(boost::asio::ip::address_v4::any(), 7163);
 
     stream1.emplace_reader<spead2::recv::udp_reader>(
-        endpoint1, spead2::recv::udp_reader::default_max_size, 128 * 1024 * 1024);
-    // stream2.emplace_reader<spead2::recv::udp_reader>(
-    //     endpoint2, spead2::recv::udp_reader::default_max_size, 128 * 1024 * 1024);
-    // stream3.emplace_reader<spead2::recv::udp_reader>(
-    //     endpoint3, spead2::recv::udp_reader::default_max_size, 128 * 1024 * 1024);
+        endpoint1, spead2::recv::udp_reader::default_max_size, 256 * 1024 * 1024);
+    stream2.emplace_reader<spead2::recv::udp_reader>(
+        endpoint2, spead2::recv::udp_reader::default_max_size, 256 * 1024 * 1024);
+    stream3.emplace_reader<spead2::recv::udp_reader>(
+        endpoint3, spead2::recv::udp_reader::default_max_size, 256 * 1024 * 1024);
 
     unsigned long long first_ts, ts1, ts2, ts3, ts4;
     long long tsdiff2 = 1, tsdiff3 = 1, tsdiff4 = 1, prev1, prev2, prev3, prev4;
 
     uint64_t heap_size = N_POLS * N_CHANS * BYTES_PER_SAMPLE * TIMESTAMPS_PER_HEAP;
-    uint64_t buffer_allignment = 13; //Never going to be 13, could be 0
+    // uint64_t buffer_allignment = 13; //Never going to be 13, could be 0
 
         if (dada_hdu_lock_read (hdu) < 0){
          fprintf(stderr, KRED "hdu CONNECT FAILED\n" RESET);
@@ -154,6 +154,11 @@ static void run_ringbuffered(int port1, int port2, int port3, dada_hdu_t * hdu)
 
     // prev1 = ts1;
     first_ts = get_timestamp(hdu);
+    if (first_ts == 0){
+        fprintf (stderr, "first_ts = 0");
+        first_ts = get_timestamp(hdu);
+    }
+
     ts1 = first_ts;
 
     uint16_t * out;
@@ -161,45 +166,36 @@ static void run_ringbuffered(int port1, int port2, int port3, dada_hdu_t * hdu)
     uint64_t out_buffer_size = sizeof(uint16_t) * 67108864 * 10;
     fprintf (stderr, "out_buffer_size = %llu\n", out_buffer_size);
     out = (uint16_t *)malloc(out_buffer_size);
-    // align2 = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
-    // align3 = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
-    // align4 = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
     memset(out,0,out_buffer_size);
-    // memset(align1,0,67108864 * sizeof(uint16_t));
-    // memset(align1,0,67108864 * sizeof(uint16_t));
     std::vector<spead2::recv::item> items1, items2, items3;
 
     spead2::recv::heap fh1 = stream1.pop();
     items1 = fh1.get_items();
-    prev2 = ts2;
+    // prev2 = ts2;
     ts2 = *((unsigned long long *)items1[0].ptr);
     tsdiff2 = ts2 < first_ts? first_ts - ts2 : - static_cast< long long >( ts2 - first_ts );
     fprintf (stderr, KGRN "ts2 = %llu\n" RESET, ts2);
     fprintf (stderr, KGRN "tsdiff2 = %lld\n" RESET, tsdiff2);
-    
-    // spead2::recv::heap fh2 = stream2.pop();
-    // items2 = fh2.get_items();
-    // prev3 = ts3;
-    // ts3 = *((unsigned long long *)items2[0].ptr);
-    // tsdiff3 = ts3 < first_ts? first_ts - ts3 : - static_cast< long long >( ts3 - first_ts );
-    // fprintf (stderr, KGRN "ts3 = %llu\n" RESET, ts3);
-    // fprintf (stderr, KGRN "tsdiff3 = %lld\n" RESET, tsdiff3);
 
-    // spead2::recv::heap fh3 = stream3.pop();
-    // items3 = fh3.get_items();
-    // prev4 = ts4;
-    // ts4 = *((unsigned long long *)items3[0].ptr);
-    // tsdiff4 = ts4 < first_ts? first_ts - ts4 : - static_cast< long long >( ts4 - first_ts );
-    // fprintf (stderr, KGRN "ts4 = %llu\n" RESET, ts4);
-    // fprintf (stderr, KGRN "tsdiff4 = %lld\n" RESET, tsdiff4);
+    spead2::recv::heap fh2 = stream2.pop();
+    items2 = fh2.get_items();
+    // prev2 = ts2;
+    ts3 = *((unsigned long long *)items2[0].ptr);
+    tsdiff3 = ts3 < first_ts? first_ts - ts3 : - static_cast< long long >( ts3 - first_ts );
+
+    spead2::recv::heap fh3 = stream3.pop();
+    items3 = fh3.get_items();
+    // prev2 = ts2;
+    ts4 = *((unsigned long long *)items3[0].ptr);
+    tsdiff4 = ts4 < first_ts? first_ts - ts4 : - static_cast< long long >( ts4 - first_ts );
 
 
-while (true)
+    while (true)
     {
         try
         {
-            uint64_t pos1 = ((ts1 - first_ts) * 67108864 * sizeof(uint16_t)/ 536870912) % out_buffer_size;
-            memset(out + pos1 ,0 ,67108864 * sizeof(uint16_t));
+            uint64_t pos1 = ((ts1 - first_ts) * 67108864 / 536870912) % out_buffer_size / sizeof(uint16_t);
+            // memset(out + pos1 ,0 ,67108864 * sizeof(uint16_t));
             uint16_t * accumulated, * beamformed;
             uint64_t blockid, num_vals;
             char * buffer;
@@ -209,127 +205,115 @@ while (true)
             accumulated = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
             
             num_vals = accumulate (hdu->data_block->curbuf, accumulated, hdu->data_block->curbufsz);
-            bf_align (accumulated, out, num_vals, pos1, out_buffer_size);
+            bf_align (accumulated, out, num_vals, pos1, out_buffer_size / 2);
             sync[0][pos1/67108864/sizeof(uint16_t)] = 1;
 
             fprintf (stderr, KGRN "ts1 = %llu\n" RESET, ts1);
+            fprintf (stderr, KGRN "pos1 = %llu\n" RESET, pos1);
 
             if (tsdiff2 > 0){
-                uint64_t pos2 = ((tsdiff2) * 67108864 / 536870912) % out_buffer_size;
-                bf_align ((uint16_t *) items1[1].ptr, out, num_vals, pos2, out_buffer_size);
+                uint64_t pos2 = ((tsdiff2) * 67108864 / 536870912) % out_buffer_size / 2;
+                bf_align ((uint16_t *) items1[1].ptr, out, num_vals, pos2, out_buffer_size / 2);
                 sync[1][pos2/67108864/sizeof(uint16_t)] = 1;
             }
 
+            if (tsdiff3 > 0){
+                uint64_t pos3 = ((tsdiff3) * 67108864 / 536870912) % out_buffer_size / 2;
+                bf_align ((uint16_t *) items2[1].ptr, out, num_vals, pos3, out_buffer_size / 2);
+                sync[2][pos3/67108864/sizeof(uint16_t)] = 1;
+            }
 
-            fh1 = stream1.pop();
-            items1 = fh1.get_items();
-            // fprintf(stderr, "items1[1].length = %llu\n", items1[1].length);
-            prev2 = ts2;
-            ts2 = *((unsigned long long *)items1[0].ptr);
-            tsdiff2 = ts2 < first_ts? first_ts - ts2 : - static_cast< long long >( ts2 - first_ts );
+            if (tsdiff4 > 0){
+                uint64_t pos4 = ((tsdiff4) * 67108864 / 536870912) % out_buffer_size / 2;
+                bf_align ((uint16_t *) items3[1].ptr, out, num_vals, pos4, out_buffer_size / 2);
+                sync[3][pos4/67108864/sizeof(uint16_t)] = 1;
+            }
+
             int64_t diff = ts2 < ts1? ts1 - ts2 : - static_cast< long long >( ts2 - ts1 );
-            // fprintf (stderr, KGRN "ts2 = %llu\n" RESET, ts2);
-            // fprintf (stderr, KGRN "tsdiff2 = %lld\n" RESET, tsdiff2/536870912);
-            // fprintf (stderr, KYEL "_diff2 : %llu\n" RESET, (diff)/536870912);
-            // }
 
             if (diff > 0){
-                // fprintf (stderr, KYEL "_diff2 : %llu\n" RESET, (diff)/536870912);
-                uint64_t pos2 = ((tsdiff2) * 67108864 / 536870912) % out_buffer_size;
-                bf_align ((uint16_t *) items1[1].ptr, out, num_vals, pos2, out_buffer_size);
+                fh1 = stream1.pop();
+                items1 = fh1.get_items();
+                // prev2 = ts2;
+                ts2 = *((unsigned long long *)items1[0].ptr);
+                tsdiff2 = ts2 < first_ts? first_ts - ts2 : - static_cast< long long >( ts2 - first_ts );
+                diff = ts2 < ts1? ts1 - ts2 : - static_cast< long long >( ts2 - ts1 );
+            }
+
+            if (diff > 0){
+                uint64_t pos2 = ((tsdiff2) * 67108864 / 536870912) % out_buffer_size/2;
+                bf_align ((uint16_t *) items1[1].ptr, out, num_vals, pos2, out_buffer_size/2);
                 sync[1][pos2/67108864/sizeof(uint16_t)] = 1;
                 fh1 = stream1.pop();
                 items1 = fh1.get_items();
-                // fprintf(stderr, "items1[1].length = %llu\n", items1[1].length);
-                prev2 = ts2;
+                // prev2 = ts2;
                 ts2 = *((unsigned long long *)items1[0].ptr);
                 tsdiff2 = ts2 < first_ts? first_ts - ts2 : - static_cast< long long >( ts2 - first_ts );
-                // fprintf (stderr, KGRN "ts2 = %llu\n" RESET, ts2);
-                // fprintf (stderr, KGRN "tsdiff2 = %lld\n" RESET, tsdiff2/536870912);
             }
 
-            // if (tsdiff3 > 0){
-            //     uint64_t pos3 = ((tsdiff3) * 67108864 / 536870912) % out_buffer_size;
-            //     bf_align ((uint16_t *) items2[1].ptr, out, num_vals, pos3, out_buffer_size);
-            //     sync[2][pos3/67108864/sizeof(uint16_t)] = 1;
-            // }
 
-            // if (tsdiff4 > 0){
-            //     uint64_t pos4 = ((tsdiff4) * 67108864 / 536870912) % out_buffer_size;
-            //     bf_align ((uint16_t *) items3[1].ptr, out, num_vals, pos4, out_buffer_size);
-            //     sync[1][pos4/67108864/sizeof(uint16_t)] = 1;
-            // }
 
-            // if (tsdiff3 > -536870912){
-            // fh2 = stream2.pop();
-            // items2 = fh2.get_items();
-            // // fprintf(stderr, "items2[1].length = %llu\n", items2[1].length);
-            // prev3 = ts3;
-            // ts3 = *((unsigned long long *)items2[0].ptr);
-            // tsdiff3 = ts3 < first_ts? first_ts - ts3 : - static_cast< long long >( ts3 - first_ts );
-            // diff = ts3 < ts1? ts1 - ts3 : - static_cast< long long >( ts3 - ts1 );
-            // // fprintf (stderr, KGRN "ts3 = %llu\n" RESET, ts3);
-            // // fprintf (stderr, KGRN "tsdiff3 = %lld\n" RESET, tsdiff3/536870912);
-            // // fprintf (stderr, KYEL "_diff3 : %llu\n" RESET, (diff)/536870912);
-            // // }
-            
+            // fprintf (stderr, KRED "diff1 : %llu\n" RESET, (tsdiff1)/536870912);
+            fprintf (stderr, KRED "diff2 : %lld\n" RESET, (tsdiff2)/536870912);
+            fprintf (stderr, KRED "diff : %lld\n" RESET, (diff)/536870912);
 
-            // if (diff > 0){
-            //     // fprintf (stderr, KYEL "_diff3 : %llu\n" RESET, (diff)/536870912);
-            //     uint64_t pos3 = ((tsdiff3) * 67108864 / 536870912) % out_buffer_size;
-            //     bf_align ((uint16_t *) items2[1].ptr, out, num_vals, pos3, out_buffer_size);
-            //     sync[1][pos3/67108864/sizeof(uint16_t)] = 1;
-            //     fh2 = stream2.pop();
-            //     items2 = fh2.get_items();
-            //     // fprintf(stderr, "items2[1].length = %llu\n", items2[1].length);
-            //     prev3 = ts3;
-            //     ts3 = *((unsigned long long *)items2[0].ptr);
-            //     tsdiff3 = ts3 < first_ts? first_ts - ts3 : - static_cast< long long >( ts3 - first_ts );
-            //     // fprintf (stderr, KGRN "ts3 = %llu\n" RESET, ts3);
-            //     // fprintf (stderr, KGRN "tsdiff3 = %lld\n" RESET, tsdiff3/536870912);
-            // }
+            diff = ts3 < ts1? ts1 - ts3 : - static_cast< long long >( ts3 - ts1 );
 
-            // // if (tsdiff4 > -536870912){
-            // fh3 = stream3.pop();
-            // items3 = fh3.get_items();
-            // // fprintf(stderr, "items3[1].length = %llu\n", items3[1].length);
-            // prev4 = ts4;
-            // ts4 = *((unsigned long long *)items3[0].ptr);
-            // tsdiff4 = ts4 < first_ts? first_ts - ts4 : - static_cast< long long >( ts4 - first_ts );
-            // diff = ts4 < ts1? ts1 - ts4 : - static_cast< long long >( ts4 - ts1 );
-            // // fprintf (stderr, KGRN "ts4 = %llu\n" RESET, ts4);
-            // // fprintf (stderr, KGRN "tsdiff4 = %lld\n" RESET, tsdiff4/536870912);
-            // // fprintf (stderr, KYEL "_diff4 : %llu\n" RESET, (diff)/536870912);
-            // // }
+            if (diff > 0){
+                fh2 = stream2.pop();
+                items2 = fh2.get_items();
+                // prev2 = ts2;
+                ts3 = *((unsigned long long *)items2[0].ptr);
+                tsdiff3 = ts3 < first_ts? first_ts - ts3 : - static_cast< long long >( ts3 - first_ts );
+                diff = ts3 < ts1? ts1 - ts3 : - static_cast< long long >( ts3 - ts1 );
+            }
 
-            // if (diff > 0){
-            //     // fprintf (stderr, KYEL "_diff4 : %llu\n" RESET, (diff)/536870912);
-            //     uint64_t pos4 = ((tsdiff4) * 67108864 / 536870912) % out_buffer_size;
-            //     bf_align ((uint16_t *) items3[1].ptr, out, num_vals, pos4, out_buffer_size);
-            //     sync[1][pos4/67108864/sizeof(uint16_t)] = 1;
-            //     fh3 = stream3.pop();
-            //     items3 = fh3.get_items();
-            //     // fprintf(stderr, "items3[1].length = %llu\n", items3[1].length);
-            //     prev4 = ts4;
-            //     ts4 = *((unsigned long long *)items3[0].ptr);
-            //     tsdiff4 = ts4 < first_ts? first_ts - ts4 : - static_cast< long long >( ts4 - first_ts );
-            //     // fprintf (stderr, KGRN "ts4 = %llu\n" RESET, ts4);
-            //     // fprintf (stderr, KGRN "tsdiff4 = %lld\n" RESET, tsdiff4/536870912);
-            // }
+            if (diff > 0){
+                uint64_t pos3 = ((tsdiff3) * 67108864 / 536870912) % out_buffer_size/2;
+                bf_align ((uint16_t *) items2[1].ptr, out, num_vals, pos3, out_buffer_size/2);
+                sync[2][pos3/67108864/sizeof(uint16_t)] = 1;
+                fh2 = stream2.pop();
+                items2 = fh2.get_items();
+                // prev2 = ts2;
+                ts3 = *((unsigned long long *)items2[0].ptr);
+                tsdiff3 = ts3 < first_ts? first_ts - ts3 : - static_cast< long long >( ts3 - first_ts );
+            }
 
-            fprintf (stderr, KRED "diff1 : %llu\n" RESET, (tsdiff1)/536870912);
-            fprintf (stderr, KRED "diff2 : %llu\n" RESET, (tsdiff2)/536870912);
-            // fprintf (stderr, KRED "diff3 : %llu\n" RESET, (tsdiff3)/536870912);
-            // fprintf (stderr, KRED "diff4 : %llu\n" RESET, (tsdiff4)/536870912);
+            fprintf (stderr, KRED "diff3 : %lld\n" RESET, (tsdiff3)/536870912);
+            fprintf (stderr, KRED "diff : %lld\n" RESET, (diff)/536870912);
+
+
+            diff = ts4 < ts1? ts1 - ts4 : - static_cast< long long >( ts4 - ts1 );
+
+            if (diff > 0){
+                fh3 = stream3.pop();
+                items3 = fh3.get_items();
+                // prev2 = ts2;
+                ts4 = *((unsigned long long *)items3[0].ptr);
+                tsdiff4 = ts4 < first_ts? first_ts - ts4 : - static_cast< long long >( ts4 - first_ts );
+                diff = ts4 < ts1? ts1 - ts4 : - static_cast< long long >( ts4 - ts1 );
+            }
+
+            if (diff > 0){
+                uint64_t pos4 = ((tsdiff4) * 67108864 / 536870912) % out_buffer_size/2;
+                bf_align ((uint16_t *) items3[1].ptr, out, num_vals, pos4, out_buffer_size/2);
+                sync[3][pos4/67108864/sizeof(uint16_t)] = 1;
+                fh3 = stream3.pop();
+                items3 = fh3.get_items();
+                // prev2 = ts2;
+                ts4 = *((unsigned long long *)items3[0].ptr);
+                tsdiff4 = ts4 < first_ts? first_ts - ts4 : - static_cast< long long >( ts4 - first_ts );
+            }
+
+            fprintf (stderr, KRED "diff4 : %lld\n" RESET, (tsdiff4)/536870912);
+            fprintf (stderr, KRED "diff : %lld\n" RESET, (diff)/536870912);
             
             ssize_t size =  ipcio_close_block_read(hdu->data_block, hdu->data_block->curbufsz);
-            // dada_hdu_unlock_read(hdu);
             
             ts1 = get_timestamp(hdu);
 
             free(accumulated);
             free(beamformed);
-            // free()
 
         }
         catch (spead2::ringbuffer_stopped &e)
