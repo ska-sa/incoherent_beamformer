@@ -20,6 +20,15 @@
 
 #include "dada_beamform.h"
 
+#include <pthread.h>
+
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+
+#include <sys/shm.h>
+#include "ipcutil.h"
+
 #define DADA_BUF_1 0x1234
 #define DADA_BUF_2 0x2345
 
@@ -41,6 +50,15 @@
 #define RESET "\033[0m"
 
 typedef std::chrono::time_point<std::chrono::high_resolution_clock> time_point;
+
+struct thread_data{
+   int tid;
+   int port;
+   unsigned long long first_ts;
+   int buffer_id;
+   int ts_id;
+   unsigned long long num_vals;
+};
 
 
 void show_heap(const spead2::recv::heap &fheap)
@@ -108,6 +126,196 @@ void bf_align (uint16_t * beam, uint16_t * align, uint64_t num_vals, uint64_t po
         beamform (beam + wrap * sizeof(uint64_t), align, align, num_vals - wrap);
     }
     // fprintf (stderr, "out_align\n");
+}
+
+//int port, unsigned long long first_ts, int buffer_id, int ts_id
+void capture_spead(void* threadarg)
+{
+    fprintf (stderr, KYEL "IN THREAD\n" RESET);
+    struct thread_data *my_data;
+    my_data = (struct thread_data *) threadarg;
+    int port = my_data->port;
+    unsigned long long first_ts = my_data->first_ts;
+    unsigned long long num_vals = my_data->num_vals;
+    int buffer_id = my_data->buffer_id;
+    int ts_id = my_data->ts_id;
+    int tid = my_data->tid;
+
+    uint16_t* order_buffer;
+    unsigned long long ts2;
+    long long tsdiff2;
+    unsigned long long ts;
+    uint64_t out_buffer_size = sizeof(uint16_t) * 67108864 * 10;
+
+    spead2::thread_pool worker;
+    // std::shared_ptr<spead2::memory_pool> pool = std::make_shared<spead2::memory_pool>(16384, 26214400, 12, 8);
+
+    spead2::recv::ring_stream<spead2::ringbuffer_semaphore<spead2::recv::live_heap> > stream1(worker, 12);
+    boost::asio::ip::udp::endpoint endpoint1(boost::asio::ip::address_v4::any(), port);
+
+    stream1.emplace_reader<spead2::recv::udp_reader>(
+        endpoint1, spead2::recv::udp_reader::default_max_size, 256 * 1024 * 1024);
+
+    fprintf (stderr, KYEL "ATTACHING\n" RESET);
+
+    order_buffer = (uint16_t *)shmat(buffer_id, NULL, 0);
+    ts = *((unsigned long long *)shmat(ts_id, NULL, 0));
+
+    fprintf (stderr, KYEL "ATTACHED\n" RESET);
+
+    std::vector<spead2::recv::item> items1;
+
+    spead2::recv::heap fh1 = stream1.pop();
+    items1 = fh1.get_items();
+    // prev2 = ts2;
+    ts2 = *((unsigned long long *)items1[0].ptr);
+    tsdiff2 = ts2 < first_ts? first_ts - ts2 : - static_cast< long long >( ts2 - first_ts );
+
+    if (tsdiff2 > 0){
+        uint64_t pos2 = ((tsdiff2) * 67108864 / 536870912) % out_buffer_size / 2;
+        bf_align ((uint16_t *) items1[1].ptr, order_buffer, num_vals, pos2, out_buffer_size / 2);
+        // sync[1][pos2/67108864/sizeof(uint16_t)] = 1;
+    }
+
+    while (true)
+    {
+        try{
+            
+            ts = *((unsigned long long *)shmat(ts_id, NULL, 0));    
+
+            int64_t diff = ts2 < ts? ts - ts2 : - static_cast< long long >( ts2 - ts );
+
+            // fprintf (stderr, "ts = %llu\n", ts);
+            // fprintf (stderr, "ts2 = %llu\n", ts2);
+            // fprintf (stderr, "diff = %lld\n", diff);
+
+                fh1 = stream1.pop();
+                items1 = fh1.get_items();
+                // prev2 = ts2;
+                ts2 = *((unsigned long long *)items1[0].ptr);
+                tsdiff2 = ts2 < first_ts? first_ts - ts2 : - static_cast< long long >( ts2 - first_ts );
+                diff = ts2 < ts? ts - ts2 : - static_cast< long long >( ts2 - ts );
+            
+
+            if (diff > 0){
+                fprintf (stderr, KYEL "[%d] second\n" RESET, tid, (diff)/536870912);
+                uint64_t pos2 = ((tsdiff2) * 67108864 / 536870912) % out_buffer_size/2;
+                bf_align ((uint16_t *) items1[1].ptr, order_buffer, num_vals, pos2, out_buffer_size/2);
+                // sync[1][pos2/67108864/sizeof(uint16_t)] = 1;
+                fh1 = stream1.pop();
+                items1 = fh1.get_items();
+                // prev2 = ts2;
+                ts2 = *((unsigned long long *)items1[0].ptr);
+                tsdiff2 = ts2 < first_ts? first_ts - ts2 : - static_cast< long long >( ts2 - first_ts );
+            }
+
+            // fprintf (stderr, KRED "[%d] diff2 : %lld\n" RESET, tid, (tsdiff2)/536870912);
+            fprintf (stderr, KRED "[%d] diff : %lld\n" RESET, tid, (diff)/536870912);
+        }
+        catch (spead2::ringbuffer_stopped &e)
+        {
+            break;
+        }
+    }
+
+}
+
+void run (int port1, int port2, int port3, dada_hdu_t * hdu)
+{
+    pthread_t threads[3];
+    struct thread_data thread_data_array[3];
+
+    unsigned long long first_ts;
+    unsigned long long * ts;
+    uint64_t heap_size = N_POLS * N_CHANS * BYTES_PER_SAMPLE * TIMESTAMPS_PER_HEAP;
+
+    uint64_t out_buffer_size = sizeof(uint16_t) * 67108864 * 10;
+    fprintf (stderr, "out_buffer_size = %llu\n", out_buffer_size);
+    int ob_id, ts_id;
+    uint16_t * out;
+    out = ipc_alloc("6543", out_buffer_size, IPC_CREAT | IPC_EXCL | 0666, &ob_id);
+    ts = ipc_alloc("5432", sizeof(unsigned long long), IPC_CREAT | IPC_EXCL | 0666, &ts_id);
+    memset(out,0,out_buffer_size);
+
+    if (dada_hdu_lock_read (hdu) < 0){
+         fprintf(stderr, KRED "hdu CONNECT FAILED\n" RESET);
+         // return EXIT_FAILURE;
+    }
+
+    initial_header(hdu);
+    
+    if (ipcio_is_open (hdu->data_block)){
+        fprintf (stderr, KGRN "OPEN\n" RESET);
+    }
+
+    // prev1 = ts1;
+    first_ts = get_timestamp(hdu);
+    if (first_ts == 0){
+        fprintf (stderr, "first_ts = 0\n");
+        first_ts = get_timestamp(hdu);
+    }
+
+    ts[0] = first_ts;
+    unsigned long long num_vals, pos1, blockid;
+    char * buffer;
+
+    buffer = ipcio_open_block_read(hdu->data_block, &(hdu->data_block->curbufsz), &blockid);
+
+    uint16_t * accumulated = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
+    
+
+    num_vals = accumulate (hdu->data_block->curbuf, accumulated, hdu->data_block->curbufsz);
+    bf_align (accumulated, out, num_vals, pos1, out_buffer_size / 2);
+    // sync[0][pos1/67108864/sizeof(uint16_t)] = 1;
+    
+    ssize_t size =  ipcio_close_block_read(hdu->data_block, hdu->data_block->curbufsz);
+
+    free (accumulated);
+
+    thread_data_array[0].tid = 0;
+    thread_data_array[0].port = 7161;
+    thread_data_array[0].first_ts = first_ts;
+    thread_data_array[0].buffer_id = ob_id;
+    thread_data_array[0].ts_id = ts_id;
+    thread_data_array[0].num_vals = num_vals;
+    fprintf (stderr, KGRN "CREATE THREAD\n" RESET);
+
+    thread_data_array[1].tid = 1;
+    thread_data_array[1].port = 7162;
+    thread_data_array[1].first_ts = first_ts;
+    thread_data_array[1].buffer_id = ob_id;
+    thread_data_array[1].ts_id = ts_id;
+    thread_data_array[1].num_vals = num_vals;
+
+    thread_data_array[2].tid = 2;
+    thread_data_array[2].port = 7163;
+    thread_data_array[2].first_ts = first_ts;
+    thread_data_array[2].buffer_id = ob_id;
+    thread_data_array[2].ts_id = ts_id;
+    thread_data_array[2].num_vals = num_vals;
+
+    pthread_create(&threads[0], NULL, capture_spead, &thread_data_array[0]);
+    pthread_create(&threads[1], NULL, capture_spead, &thread_data_array[1]);
+    pthread_create(&threads[2], NULL, capture_spead, &thread_data_array[2]);
+
+    while (true)
+    {
+        fprintf (stderr, KGRN "GRABBED\n" RESET);
+        accumulated = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
+        uint64_t pos1 = ((ts[0] - first_ts) * 67108864 / 536870912) % out_buffer_size / sizeof(uint16_t);
+
+        
+        ts[0] = get_timestamp(hdu);
+
+        buffer = ipcio_open_block_read(hdu->data_block, &(hdu->data_block->curbufsz), &blockid);
+
+        num_vals = accumulate (hdu->data_block->curbuf, accumulated, hdu->data_block->curbufsz);
+        bf_align (accumulated, out, num_vals, pos1, out_buffer_size / 2);
+        // sync[0][pos1/67108864/sizeof(uint16_t)] = 1;
+        size =  ipcio_close_block_read(hdu->data_block, hdu->data_block->curbufsz);
+
+        free(accumulated);
+    }
 }
 
 
@@ -327,5 +535,5 @@ int main (int argc, char **argv)
 {
     dada_hdu_t * hdu;
     connect_to_buffer(&hdu, DADA_BUF_1);
-    run_ringbuffered (7160, 7161, 7162, hdu);
+    run (7160, 7161, 7162, hdu);
 }
