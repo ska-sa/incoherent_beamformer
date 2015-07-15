@@ -145,7 +145,7 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
     }
 
     if (dada_hdu_lock_read (hdu2) < 0){
-         fprintf(stderr, KRED "hdu1 CONNECT FAILED\n" RESET);
+         fprintf(stderr, KRED "hdu2 CONNECT FAILED\n" RESET);
          // return EXIT_FAILURE;
     }
     initial_header(hdu1);
@@ -156,6 +156,37 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
     }
 
     unsigned long long prev;
+    uint64_t blockid1, blockid2;
+
+    uint64_t num_occupied_1 = ipcbuf_get_write_count (&(hdu1->data_block->buf)) - ipcbuf_get_read_count (&(hdu1->data_block->buf));
+    uint64_t num_occupied_2 = ipcbuf_get_write_count (&(hdu2->data_block->buf)) - ipcbuf_get_read_count (&(hdu2->data_block->buf));
+
+    while (num_occupied_1 > 0 && num_occupied_2 > 0){
+        // fprintf (stderr, KYEL "hdu1 write count = %llu and hdu2 write count = %llu\n" RESET, ipcbuf_get_write_count (&(hdu1->data_block->buf)), ipcbuf_get_write_count (&(hdu1->data_block->buf)));
+        get_timestamp(hdu1);
+        get_timestamp(hdu2);
+        ipcio_open_block_read(hdu1->data_block, &(hdu1->data_block->curbufsz), &blockid1);
+        ipcio_open_block_read(hdu2->data_block, &(hdu2->data_block->curbufsz), &blockid2);
+        ssize_t size =  ipcio_close_block_read(hdu1->data_block, hdu1->data_block->curbufsz);
+        dada_hdu_unlock_read(hdu1);
+        size =  ipcio_close_block_read(hdu2->data_block, hdu2->data_block->curbufsz);
+        dada_hdu_unlock_read(hdu2);
+
+        if (dada_hdu_lock_read (hdu1) < 0){
+            fprintf(stderr, KRED "hdu1 CONNECT FAILED\n" RESET);
+            // return EXIT_FAILURE;
+        }
+
+        if (dada_hdu_lock_read (hdu2) < 0){
+            fprintf(stderr, KRED "hdu2 CONNECT FAILED\n" RESET);
+            // return EXIT_FAILURE;
+        }
+
+        num_occupied_1 = ipcbuf_get_write_count (&(hdu1->data_block->buf)) - ipcbuf_get_read_count (&(hdu1->data_block->buf));
+        num_occupied_2 = ipcbuf_get_write_count (&(hdu2->data_block->buf)) - ipcbuf_get_read_count (&(hdu2->data_block->buf));
+    }
+
+    fprintf (stderr, KGRN "Cleared all buffers\n" RESET);
     
     // fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", hdu1->data_block->curbufsz);
     while(1){
@@ -200,7 +231,6 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
         uint16_t* beamformed;
         char* buffer1, *buffer2;
         char* align_buffer;
-        uint64_t blockid1, blockid2;
         // fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
 
         buffer1 = ipcio_open_block_read((*alligned)->data_block, &((*alligned)->data_block->curbufsz), &blockid1);
