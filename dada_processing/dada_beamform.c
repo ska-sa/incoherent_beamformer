@@ -234,6 +234,7 @@ void beamform (uint16_t * acc1, uint16_t * acc2, uint16_t * beamformed, uint64_t
     // beamformed = (uint16_t*)malloc(num_vals * sizeof(uint16_t));
     for (i = 0; i < num_vals; i++)
     {
+        // fprintf(stderr, "%d ,", i);
         beamformed[i] = acc1[i] + acc2[i];
     }
 }
