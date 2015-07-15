@@ -22,9 +22,9 @@
 
 #include <pthread.h>
 
-#include <thread>
-#include <mutex>
-#include <condition_variable>
+// #include <thread>
+// #include <mutex>
+// #include <condition_variable>
 
 #include <sys/shm.h>
 #include "ipcutil.h"
@@ -38,6 +38,8 @@
 #define TIMESTAMPS_PER_HEAP 4
 #define BYTES_PER_SAMPLE 1
 #define TIMESTAMP_INCREMENT 2048
+
+#define NUM_SYNC_LOOPS 2
 
 #define KNRM  "\x1B[0m"
 #define KRED  "\x1B[31m"
@@ -59,6 +61,11 @@ struct thread_data{
    int ts_id;
    unsigned long long num_vals;
 };
+
+int master_id = 3;            //Master-thread which we synchronise to
+unsigned long long tsync; //time to sync with
+pthread_mutex_t tsync_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t master_id_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 
 void show_heap(const spead2::recv::heap &fheap)
@@ -102,15 +109,6 @@ void show_heap(const spead2::recv::heap &fheap)
     // std::cout << std::flush;
 }
 
-// void beamform_4 (u_int16_t * acc1, u_int16_t * acc2, u_int16_t * acc3, u_int16_t * acc4, u_int16_t * beamformed, uint64_t num_vals){
-//     int i;
-//     // beamformed = (uint16_t*)malloc(num_vals * sizeof(uint16_t));
-//     for (i = 0; i < num_vals; i++)
-//     {
-//         beamformed[i] = acc1[i] + acc2[i] + acc3[i] + acc4[i];
-//     }
-// }
-
 void bf_align (uint16_t * beam, uint16_t * align, uint64_t num_vals, uint64_t pos, uint64_t align_size){
     uint64_t beam_size = num_vals * sizeof(uint16_t);
     // fprintf (stderr, "pos = %llu, pos + beam_size = %llu, num_vals = %llu align_size = %llu\n", pos, pos+beam_size, num_vals, align_size);
@@ -150,16 +148,16 @@ void capture_spead(void* threadarg)
     spead2::thread_pool worker;
     // std::shared_ptr<spead2::memory_pool> pool = std::make_shared<spead2::memory_pool>(16384, 26214400, 12, 8);
 
-    spead2::recv::ring_stream<spead2::ringbuffer_semaphore<spead2::recv::live_heap> > stream1(worker, 12);
+    spead2::recv::ring_stream<spead2::ringbuffer_semaphore<spead2::recv::live_heap> > stream1(worker, 62);
     boost::asio::ip::udp::endpoint endpoint1(boost::asio::ip::address_v4::any(), port);
 
     stream1.emplace_reader<spead2::recv::udp_reader>(
-        endpoint1, spead2::recv::udp_reader::default_max_size, 256 * 1024 * 1024);
+        endpoint1, spead2::recv::udp_reader::default_max_size, 512 * 1024 * 1024);
 
     fprintf (stderr, KYEL "ATTACHING\n" RESET);
 
     order_buffer = (uint16_t *)shmat(buffer_id, NULL, 0);
-    ts = *((unsigned long long *)shmat(ts_id, NULL, 0));
+    // ts = *((unsigned long long *)shmat(ts_id, NULL, 0));
 
     fprintf (stderr, KYEL "ATTACHED\n" RESET);
 
@@ -174,14 +172,40 @@ void capture_spead(void* threadarg)
     if (tsdiff2 > 0){
         uint64_t pos2 = ((tsdiff2) * 67108864 / 536870912) % out_buffer_size / 2;
         bf_align ((uint16_t *) items1[1].ptr, order_buffer, num_vals, pos2, out_buffer_size / 2);
-        // sync[1][pos2/67108864/sizeof(uint16_t)] = 1;
+    }
+
+    fprintf(stderr, "[%d] tsync = %llu\n", tid, tsync);
+
+    for (int i = 0; i < NUM_SYNC_LOOPS; i++){
+        if (ts2 < tsync){
+            pthread_mutex_lock(&tsync_mutex);
+            pthread_mutex_lock(&master_id_mutex);
+            tsync = ts2;
+            master_id = tid;
+            pthread_mutex_unlock(&tsync_mutex);
+            pthread_mutex_unlock(&master_id_mutex);
+            fprintf(stderr, "[%d] new tsync = %llu\n", tid, tsync);
+        }
+        fh1 = stream1.pop();
+        items1 = fh1.get_items();
+        // prev2 = ts2;
+        ts2 = *((unsigned long long *)items1[0].ptr);
+        tsdiff2 = ts2 < first_ts? first_ts - ts2 : - static_cast< long long >( ts2 - first_ts );
+    }
+
+    if (master_id == tid){
+         pthread_mutex_lock(&tsync_mutex);
+         tsync = ts2;
+         pthread_mutex_unlock(&tsync_mutex);
     }
 
     while (true)
     {
         try{
             
-            ts = *((unsigned long long *)shmat(ts_id, NULL, 0));    
+            pthread_mutex_lock(&tsync_mutex);
+            ts = tsync;
+            pthread_mutex_unlock(&tsync_mutex);
 
             int64_t diff = ts2 < ts? ts - ts2 : - static_cast< long long >( ts2 - ts );
 
@@ -189,17 +213,20 @@ void capture_spead(void* threadarg)
             // fprintf (stderr, "ts2 = %llu\n", ts2);
             // fprintf (stderr, "diff = %lld\n", diff);
 
+            if (diff > 0 || master_id == tid){
                 fh1 = stream1.pop();
                 items1 = fh1.get_items();
                 // prev2 = ts2;
                 ts2 = *((unsigned long long *)items1[0].ptr);
                 tsdiff2 = ts2 < first_ts? first_ts - ts2 : - static_cast< long long >( ts2 - first_ts );
                 diff = ts2 < ts? ts - ts2 : - static_cast< long long >( ts2 - ts );
-            
+            }
+            else
+                sleep(1);
 
             if (diff > 0){
                 fprintf (stderr, KYEL "[%d] second\n" RESET, tid, (diff)/536870912);
-                uint64_t pos2 = ((tsdiff2) * 67108864 / 536870912) % out_buffer_size/2;
+                int64_t pos2 = ((tsdiff2) * 67108864 / 536870912) % out_buffer_size/2;
                 bf_align ((uint16_t *) items1[1].ptr, order_buffer, num_vals, pos2, out_buffer_size/2);
                 // sync[1][pos2/67108864/sizeof(uint16_t)] = 1;
                 fh1 = stream1.pop();
@@ -211,6 +238,12 @@ void capture_spead(void* threadarg)
 
             // fprintf (stderr, KRED "[%d] diff2 : %lld\n" RESET, tid, (tsdiff2)/536870912);
             fprintf (stderr, KRED "[%d] diff : %lld\n" RESET, tid, (diff)/536870912);
+
+            if (master_id == tid){
+                pthread_mutex_lock(&tsync_mutex);
+                tsync = ts2;
+                pthread_mutex_unlock(&tsync_mutex);
+            }
         }
         catch (spead2::ringbuffer_stopped &e)
         {
@@ -225,8 +258,8 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
     pthread_t threads[3];
     struct thread_data thread_data_array[3];
 
-    unsigned long long first_ts;
-    unsigned long long * ts;
+    unsigned long long first_ts, ts2;
+    // unsigned long long * ts;
     uint64_t heap_size = N_POLS * N_CHANS * BYTES_PER_SAMPLE * TIMESTAMPS_PER_HEAP;
 
     uint64_t out_buffer_size = sizeof(uint16_t) * 67108864 * 10;
@@ -234,7 +267,7 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
     int ob_id, ts_id;
     uint16_t * out;
     out = ipc_alloc("6543", out_buffer_size, IPC_CREAT | IPC_EXCL | 0666, &ob_id);
-    ts = ipc_alloc("5432", sizeof(unsigned long long), IPC_CREAT | IPC_EXCL | 0666, &ts_id);
+    // ts = ipc_alloc("5432", sizeof(unsigned long long), IPC_CREAT | IPC_EXCL | 0666, &ts_id);
     memset(out,0,out_buffer_size);
 
     if (dada_hdu_lock_read (hdu) < 0){
@@ -255,7 +288,11 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
         first_ts = get_timestamp(hdu);
     }
 
-    ts[0] = first_ts;
+    ts2 = first_ts;
+    pthread_mutex_lock(&tsync_mutex);
+    tsync = first_ts; //Initial sync ts
+    pthread_mutex_unlock(&tsync_mutex); 
+    fprintf(stderr,"[3] tsync = %llu\n", tsync);
     unsigned long long num_vals, pos1, blockid;
     char * buffer;
 
@@ -268,8 +305,8 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
     bf_align (accumulated, out, num_vals, pos1, out_buffer_size / 2);
     // sync[0][pos1/67108864/sizeof(uint16_t)] = 1;
     
-    ssize_t size =  ipcio_close_block_read(hdu->data_block, hdu->data_block->curbufsz);
-
+    // ssize_t size =  ipcio_close_block_read(hdu->data_block, hdu->data_block->curbufsz);
+    ssize_t size;
     free (accumulated);
 
     thread_data_array[0].tid = 0;
@@ -298,23 +335,78 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
     pthread_create(&threads[1], NULL, capture_spead, &thread_data_array[1]);
     pthread_create(&threads[2], NULL, capture_spead, &thread_data_array[2]);
 
-    while (true)
-    {
-        fprintf (stderr, KGRN "GRABBED\n" RESET);
-        accumulated = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
-        uint64_t pos1 = ((ts[0] - first_ts) * 67108864 / 536870912) % out_buffer_size / sizeof(uint16_t);
+    int64_t tsdiff2;
 
-        
-        ts[0] = get_timestamp(hdu);
-
-        buffer = ipcio_open_block_read(hdu->data_block, &(hdu->data_block->curbufsz), &blockid);
-
-        num_vals = accumulate (hdu->data_block->curbuf, accumulated, hdu->data_block->curbufsz);
-        bf_align (accumulated, out, num_vals, pos1, out_buffer_size / 2);
-        // sync[0][pos1/67108864/sizeof(uint16_t)] = 1;
+    for (int i = 0; i < NUM_SYNC_LOOPS; i++){
+        if (ts2 < tsync){
+            pthread_mutex_lock(&tsync_mutex);
+            pthread_mutex_lock(&master_id_mutex);
+            tsync = ts2;
+            master_id = 3;
+            pthread_mutex_unlock(&tsync_mutex);
+            pthread_mutex_unlock(&master_id_mutex);
+            fprintf(stderr, "[%d] new tsync = %llu\n", 3, tsync);
+        }
         size =  ipcio_close_block_read(hdu->data_block, hdu->data_block->curbufsz);
 
-        free(accumulated);
+        // free(accumulated);
+        // prev2 = ts2;
+        ts2 = get_timestamp(hdu);
+        tsdiff2 = ts2 < first_ts? first_ts - ts2 : - static_cast< long long >( ts2 - first_ts );
+
+        buffer = ipcio_open_block_read(hdu->data_block, &(hdu->data_block->curbufsz), &blockid);
+    }
+
+    while (true)
+    {
+
+        pthread_mutex_lock(&tsync_mutex);
+        unsigned long long ts = tsync;
+        pthread_mutex_unlock(&tsync_mutex);
+
+        fprintf (stderr, KGRN "GRABBED\n" RESET);
+        int64_t diff = ts2 < ts? ts - ts2 : - static_cast< long long >( ts2 - ts );
+
+        if (diff > 0 || master_id == 3){
+            accumulated = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
+            int64_t pos1 = ((tsdiff2) * 67108864 / 536870912) % out_buffer_size/2;;
+
+
+            num_vals = accumulate (hdu->data_block->curbuf, accumulated, hdu->data_block->curbufsz);
+            bf_align (accumulated, out, num_vals, pos1, out_buffer_size / 2);
+            // sync[0][pos1/67108864/sizeof(uint16_t)] = 1;
+            size =  ipcio_close_block_read(hdu->data_block, hdu->data_block->curbufsz);
+
+            free(accumulated);
+
+            ts2 = get_timestamp(hdu);
+            tsdiff2 = ts2 < first_ts? first_ts - ts2 : - static_cast< long long >( ts2 - first_ts );
+
+            buffer = ipcio_open_block_read(hdu->data_block, &(hdu->data_block->curbufsz), &blockid);
+
+            diff = ts2 < ts? ts - ts2 : - static_cast< long long >( ts2 - ts );
+        }
+        else
+            sleep(1);
+
+        if (diff > 0){
+            accumulated = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
+            int64_t pos1 = ((tsdiff2) * 67108864 / 536870912) % out_buffer_size/2;;
+
+            num_vals = accumulate (hdu->data_block->curbuf, accumulated, hdu->data_block->curbufsz);
+            bf_align (accumulated, out, num_vals, pos1, out_buffer_size / 2);
+            // sync[0][pos1/67108864/sizeof(uint16_t)] = 1;
+            size =  ipcio_close_block_read(hdu->data_block, hdu->data_block->curbufsz);
+
+            ts2 = get_timestamp(hdu);
+            buffer = ipcio_open_block_read(hdu->data_block, &(hdu->data_block->curbufsz), &blockid);
+
+            free(accumulated);
+        }
+
+        fprintf (stderr, KRED "[%d] diff : %lld\n" RESET, 3, (diff)/536870912);
+
+
     }
 }
 
