@@ -169,7 +169,7 @@ int accumulate (char * incoming, uint16_t* accumulated, uint64_t size){
     if (num_spectra % ACCUMULATE != 0){
         fprintf(stderr, KRED "Accumulation period doesn't divide into dada_buffer size");
     }
-    fprintf (stderr, "ACCUMULATE\n");
+    // fprintf (stderr, "ACCUMULATE\n");
 
     uint64_t num_out_vals = num_spectra * N_CHANS * 4 / ACCUMULATE;
 
@@ -179,9 +179,9 @@ int accumulate (char * incoming, uint16_t* accumulated, uint64_t size){
     memset(accumulated,0,num_out_vals * sizeof(uint16_t));
 
     int i, j, k;
-    fprintf (stderr, "ACCUMULATE\n");
+    // fprintf (stderr, "ACCUMULATE\n");
 
-    fprintf (stderr, "accumulated_size/ACCUMULATE = %d\n", ACCUMULATE);
+    // fprintf (stderr, "accumulated_size/ACCUMULATE = %d\n", ACCUMULATE);
 
     omp_set_num_threads(4);
     //TODO, Need to deal with bit growth, if all values are 1 then accumulating 256
@@ -223,13 +223,13 @@ int accumulate (char * incoming, uint16_t* accumulated, uint64_t size){
             }
         }
     }
-    fprintf (stderr, "i = %d, k = %d, j = %d\n", i, k, j);
-    fprintf (stderr, "size = %llu\n", size);
-    fprintf (stderr, "(i + k) * N_CHANS + j = %d\n", (i + k) * N_CHANS + j);
+    // fprintf (stderr, "i = %d, k = %d, j = %d\n", i, k, j);
+    // fprintf (stderr, "size = %llu\n", size);
+    // fprintf (stderr, "(i + k) * N_CHANS + j = %d\n", (i + k) * N_CHANS + j);
     return num_out_vals;
 }
 
-void beamform (u_int16_t * acc1, u_int16_t * acc2, u_int16_t * beamformed, uint64_t num_vals){
+void beamform (uint16_t * acc1, uint16_t * acc2, uint16_t * beamformed, uint64_t num_vals){
     int i;
     // beamformed = (uint16_t*)malloc(num_vals * sizeof(uint16_t));
     for (i = 0; i < num_vals; i++)

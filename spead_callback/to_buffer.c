@@ -628,11 +628,11 @@ int dadaThread(struct spead_api_module_shared *s)
             ipcio_close_block_write (hdu->data_block, dadaBufSize);
             uint64_t block_id;
 
-            fprintf(stderr, KRED "ss->prev_prior_ts : %llu\n" RESET, ss->prev_prior_ts);
-            fprintf(stderr, KRED "diff : %llu\n" RESET, ss->prev_prior_ts - prev_ts);
+            fprintf(stderr, KRED "ss->prev_prior_ts : %llu\n" RESET, ss->prev_prior_ts[ppts_pos]);
+            fprintf(stderr, KRED "diff : %llu\n" RESET, ss->prev_prior_ts[ppts_pos] - prev_ts);
             set_timestamp_header(hdu, ss->prev_prior_ts[ppts_pos]);
             ppts_pos = (ppts_pos + 1) % 10;
-            prev_ts = ss->prev_prior_ts;
+            prev_ts = ss->prev_prior_ts[ppts_pos];
             
             buffer = ipcio_open_block_write (hdu->data_block, &block_id);
             fprintf(stderr, KGRN "NEXT BUFFER\n" RESET);
@@ -972,9 +972,9 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
             if (offset >= dadaBufSize){  //If the offset is greater than a DADA buffer, we need to open a new buffer and reset counters
                 int ret = kill(ss->parentPID,SIGUSR2);
                 fprintf (stderr, KRED "SIGNAL SENT\n" RESET);
-                fprintf (stderr, KYEL "check = %lld, obSegment * 2 = %llu\n" RESET, check, obSegment * 2);
-                fprintf (stderr, KYEL "offset = %llu, ss->order_buffer_tail = %llu\n" RESET, offset, ss->order_buffer_tail);
-                fprintf (stderr, KYEL "ts = %lld, prior_ts = %llu\n" RESET, ts, prior_ts);
+                // fprintf (stderr, KYEL "check = %lld, obSegment * 2 = %llu\n" RESET, check, obSegment * 2);
+                // fprintf (stderr, KYEL "offset = %llu, ss->order_buffer_tail = %llu\n" RESET, offset, ss->order_buffer_tail);
+                // fprintf (stderr, KYEL "ts = %lld, prior_ts = %llu\n" RESET, ts, prior_ts);
                 ss->prev_prior_ts[ss->ppts_pos] = ss->prior_ts;
                 ss->ppts_pos= (ss->ppts_pos+1) % 10;
                 unsigned long long add = numHeapsPerBuf * timestampIncrement; //How much to add to the timstamp

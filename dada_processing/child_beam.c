@@ -57,12 +57,12 @@ void accumulate_and_beamform (char * incoming1, char * incoming2, uint16_t* beam
     acc1 = (uint16_t*)malloc(num_out_vals * sizeof(uint16_t));
     acc2 = (uint16_t*)malloc(num_out_vals * sizeof(uint16_t));
     
-    fprintf (stderr, "----------------BUFFER 1----------------\n");
+    // fprintf (stderr, "----------------BUFFER 1----------------\n");
     num_vals = accumulate(incoming1, acc1, size);
-    fprintf (stderr, "----------------BUFFER 2----------------\n");
+    // fprintf (stderr, "----------------BUFFER 2----------------\n");
     accumulate (incoming2, acc2, num_vals);
-    fprintf (stderr, "----------------BEAMFORM----------------\n");
-    beamform (acc1, acc2, beamformed, num_vals);
+    // fprintf (stderr, "----------------BEAMFORM----------------\n");
+    // beamform (acc1, acc2, beamformed, num_vals);
 
     free(acc1);
     free(acc2);
@@ -154,6 +154,8 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
     if (ipcio_is_open (hdu1->data_block)){
         fprintf (stderr, KGRN "OPEN\n" RESET);
     }
+
+    unsigned long long prev;
     
     // fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", hdu1->data_block->curbufsz);
     while(1){
@@ -184,7 +186,7 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
             dada_hdu_unlock_read(hdu2);
         }
 
-        fprintf(stderr, KGRN "Buffer allignment of %llu\n" RESET, buffer_allignment);
+        // fprintf(stderr, KGRN "Buffer allignment of %llu\n" RESET, buffer_allignment);
 
         if (dada_hdu_lock_read (*alligned) < 0){
             fprintf(stderr, KRED "CONNECT FAILED\n" RESET);
@@ -199,28 +201,28 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
         char* buffer1, *buffer2;
         char* align_buffer;
         uint64_t blockid1, blockid2;
-        fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
+        // fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
 
         buffer1 = ipcio_open_block_read((*alligned)->data_block, &((*alligned)->data_block->curbufsz), &blockid1);
 
         buffer2 = ipcio_open_block_read((*missalligned)->data_block, &((*missalligned)->data_block->curbufsz), &blockid2);
 
-        fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
+        // fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
 
-        fprintf(stderr, "YOLO\n");
+        // fprintf(stderr, "YOLO\n");
 
         // if (init == 0){ //first buffer
-            fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
+            // fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
             align_buffer = (char*)malloc((*missalligned)->data_block->curbufsz);
-            fprintf(stderr, "YOLOin\n");
+            // fprintf(stderr, "YOLOin\n");
             memset(align_buffer, 0, (*missalligned)->data_block->curbufsz);
-            fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
+            // fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
             init = 1;
         // }
 
-        fprintf(stderr, "YOLO\n");
+        // fprintf(stderr, "YOLO\n");
 
-        fprintf(stderr, "buffer_allignment = %llu. (*missalligned)->data_block->curbufsz = %" PRIu64 " (*missalligned)->data_block->curbufsz - buffer_allignment = %llu\n", buffer_allignment, (*missalligned)->data_block->curbufsz, (*missalligned)->data_block->curbufsz - buffer_allignment);
+        // fprintf(stderr, "buffer_allignment = %llu. (*missalligned)->data_block->curbufsz = %" PRIu64 " (*missalligned)->data_block->curbufsz - buffer_allignment = %llu\n", buffer_allignment, (*missalligned)->data_block->curbufsz, (*missalligned)->data_block->curbufsz - buffer_allignment);
 
         memcpy (align_buffer + buffer_allignment, (*missalligned)->data_block->curbuf, (*missalligned)->data_block->curbufsz - buffer_allignment);
 
@@ -237,9 +239,9 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
         diff = clock() - start;
         double wdiff = omp_get_wtime() - wstart; 
         int msec = diff * 1000 / CLOCKS_PER_SEC;
-        fprintf(stderr, "Time taken %d seconds %d milliseconds\n", msec/1000, msec%1000);
-        fprintf(stderr, "Wall time taken %f seconds\n", wdiff);
-        fprintf(stderr, KGRN "Speed up of %f\n" RESET, diff/1000000/wdiff);
+        // fprintf(stderr, "Time taken %d seconds %d milliseconds\n", msec/1000, msec%1000);
+        // fprintf(stderr, "Wall time taken %f seconds\n", wdiff);
+        // fprintf(stderr, KGRN "Speed up of %f\n" RESET, diff/1000000/wdiff);
 
         ts1 = get_timestamp((*alligned));
         ts2 = get_timestamp((*missalligned));
@@ -251,9 +253,11 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
         dada_hdu_unlock_read((*missalligned));
 
         
-        fprintf (stderr, KRED "num_out_vals = %llu\n" RESET, num_out_vals);
+        fprintf (stderr, KGRN "ts = %llu\n" RESET, ts1);
+        fprintf (stderr, KRED "diff : %llu\n" RESET, ts1 - prev);
+        prev = ts1;
         spead_out (beamformed, ts1, num_out_vals, &stream);
-        fprintf (stderr, KGRN "out\n" RESET);
+        // fprintf (stderr, KGRN "out\n" RESET);
 
         free(align_buffer);
         free(beamformed);

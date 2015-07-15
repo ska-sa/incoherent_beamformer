@@ -105,9 +105,9 @@ static void run_ringbuffered(int port1, int port2, int port3, dada_hdu_t * hdu)
     // stream2.set_memory_pool(pool);
     // stream3.set_memory_pool(pool);
 
-    boost::asio::ip::udp::endpoint endpoint1(boost::asio::ip::address_v4::any(), 7160);
-    boost::asio::ip::udp::endpoint endpoint2(boost::asio::ip::address_v4::any(), 7161);
-    boost::asio::ip::udp::endpoint endpoint3(boost::asio::ip::address_v4::any(), 7162);
+    boost::asio::ip::udp::endpoint endpoint1(boost::asio::ip::address_v4::any(), 7161);
+    boost::asio::ip::udp::endpoint endpoint2(boost::asio::ip::address_v4::any(), 7162);
+    boost::asio::ip::udp::endpoint endpoint3(boost::asio::ip::address_v4::any(), 7163);
 
     stream1.emplace_reader<spead2::recv::udp_reader>(
         endpoint1, spead2::recv::udp_reader::default_max_size, 128 * 1024 * 1024);
