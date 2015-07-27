@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <string.h>
 #include <fcntl.h>
+#include <omp.h>
 
 #include <spead_api.h>
 
@@ -39,7 +40,7 @@ struct snap_shot
     unsigned long long prior_ts;
     char filename[255];
     char *prefix;
-    float ave[N_CHANS*2];
+    int ave[N_CHANS];
     unsigned long long offset;
     unsigned long long data_len;
     int id;
@@ -87,6 +88,8 @@ void *spead_api_setup(struct spead_api_module_shared *s)
     char *env_temp;
 
     struct snap_shot *ss;
+
+    fprintf (stderr, "N_CHANS = %d", N_CHANS);
 
    
 
@@ -225,10 +228,11 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
 
     if (ts - prior_ts >= AVE_OVER){
         lock_spead_api_module_shared(s);
-        divide (ss->ave, ss->num_in_ave);
-	ss->num_in_ave = 0;
+        // divide (ss->ave, ss->num_in_ave);
+	    ss->num_in_ave = 0;
         pwrite (w_fd2, ss->ave, sizeof(float) * N_CHANS, sizeof(float) * N_CHANS * ss->num_writes);
         ss->num_writes++;
+        fprintf(stderr, "nuim_writes = %d\n", ss->num_writes);
         memset(ss->ave, 0, sizeof(float) * N_CHANS);
         ss->prior_ts = ts;
         set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
@@ -251,21 +255,27 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
 
 void divide (float* ave, int divisor)
 {
+    fprintf (stderr, "div by %d\n", divisor);
     int i;
-    for (i = 0; i < N_CHANS * 2; i++){
+    #pragma omp parallel for
+    for (i = 0; i < N_CHANS; i++){
         ave[i] = ave[i] / divisor;
     }
 }
 
-void add (int8_t * data, float* ave){
+void add (int8_t * data, int* ave){
     int i,j, start;
-    for (i = 0; i < N_CHANS; i++){
-        start = TIMESTAMPS_PER_HEAP * i * 2;
-	for (j = 0; j < TIMESTAMPS_PER_HEAP * 2; j=j+2){
-		ave[i] = ave[i] + (float)data[start+j];
-		ave[i+1] = ave[i+1] + (float)data[start+j+1];
+    // #pragma omp parallel for private(j)
+    for (i = 0; i < N_CHANS/2; i++){
+        start = (N_CHANS/4 + i) * TIMESTAMPS_PER_HEAP * 2;
+    	for (j = 0; j < TIMESTAMPS_PER_HEAP; j=j++){
+    		ave[2*i] = ave[2*i] + (int)data[start+2*j];
+    		ave[2*i+1] = ave[2*i+1] + (int)data[start+2*j+1];
         }
     }
+    // for (i = 0; i < N_CHANS * TIMESTAMPS_PER_HEAP; i= i + TIMESTAMPS_PER_HEAP){
+    //     ave[i/TIMESTAMPS_PER_HEAP] = ave[i/TIMESTAMPS_PER_HEAP] + data[i];
+    // }
 }
 
 void hexdump(unsigned char *buffer, unsigned long long index, unsigned long long width)
