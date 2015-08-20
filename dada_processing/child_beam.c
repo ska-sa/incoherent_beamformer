@@ -187,11 +187,12 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
     }
 
     fprintf (stderr, KGRN "Cleared all buffers\n" RESET);
+    int init = 0;
     
     // fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", hdu1->data_block->curbufsz);
     while(1){
 
-        int init = 0;
+        
 
         if (buffer_allignment == 13){
             ts1 = get_timestamp(hdu1);
@@ -228,7 +229,8 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
              // return EXIT_FAILURE;
         }
 
-        uint16_t* beamformed;
+        uint16_t** beamformed, *beam1, *beam2;
+        int buff_count = 0;
         char* buffer1, *buffer2;
         char* align_buffer;
         // fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
@@ -241,14 +243,16 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
 
         // fprintf(stderr, "YOLO\n");
 
-        // if (init == 0){ //first buffer
-            // fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
+        if (init == 0){ //first buffer
+            fprintf (stderr, "MAKING ALIGN BUFFER\n");
             align_buffer = (char*)malloc((*missalligned)->data_block->curbufsz);
+            beam1 = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
+            beam2 = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
             // fprintf(stderr, "YOLOin\n");
             memset(align_buffer, 0, (*missalligned)->data_block->curbufsz);
             // fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
             init = 1;
-        // }
+        }
 
         // fprintf(stderr, "YOLO\n");
 
@@ -259,10 +263,19 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
         clock_t start = clock(), diff;
 
         double wstart = omp_get_wtime();
-        beamformed = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
 
-        accumulate_and_beamform ((*alligned)->data_block->curbuf, align_buffer, beamformed, (*alligned)->data_block->curbufsz);
+        
+
+        if(buff_count == 0){
+            // beam1 = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
+            accumulate_and_beamform ((*alligned)->data_block->curbuf, align_buffer, beam1, (*alligned)->data_block->curbufsz);
+        }
+        else{
+            beam2 = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
+            // accumulate_and_beamform ((*alligned)->data_block->curbuf, align_buffer, beam2, (*alligned)->data_block->curbufsz);
+        }
         // accumulate (buffer1, accumulated, hdu1->data_block->curbufsz);
+
 
         memcpy (align_buffer, (*missalligned)->data_block->curbuf + (*missalligned)->data_block->curbufsz - buffer_allignment, buffer_allignment);
         int num_out_vals = (*alligned)->data_block->curbufsz / N_CHANS * N_POLS * N_CHANS * 4 / ACCUMULATE;
@@ -286,11 +299,66 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
         fprintf (stderr, KGRN "ts = %llu\n" RESET, ts1);
         fprintf (stderr, KRED "diff : %llu\n" RESET, ts1 - prev);
         prev = ts1;
-        spead_out (beamformed, ts1, num_out_vals, &stream);
+        // spead_out (beamformed, ts1, num_out_vals, &stream);
+
+        spead2::flavour f(spead2::maximum_version, 64, 48, spead2::BUG_COMPAT_PYSPEAD_0_5_2);
+        spead2::send::heap h(0x2, f);
+        spead2::descriptor desc1;
+        desc1.id = 0x1000;
+        desc1.name = "ADC_COUNT";
+        desc1.description = "a scalar int";
+        desc1.format.emplace_back('i', 64);
+
+        fprintf (stderr, KGRN "HEY\n" RESET);
+
+        spead2::descriptor desc2;
+        desc2.id = 0x1001;
+        desc2.name = "DATA";
+        desc2.description = "a 1D array of beamformed data";
+        char buffer[64];
+        sprintf(buffer, "{'shape': (%llu), 'fortran_order': False, 'descr': 'i2'}", num_out_vals);
+        desc2.numpy_header = buffer;
+
+        stream.flush();
+
+        fprintf (stderr, KGRN "num_vals = %llu\n" RESET, num_out_vals);
+        h.add_item(0x1000, &ts1, sizeof(unsigned long long), true);
+        if (buff_count == 0){
+            h.add_item(0x1001, beam1, sizeof(uint16_t) * num_out_vals, true);
+            // free(beam2);
+        }
+        else
+        {
+            h.add_item(0x1001, beam2, sizeof(uint16_t) * num_out_vals, true);
+            // free(beam1);
+        }
+
+        h.add_descriptor(desc1);
+        h.add_descriptor(desc2);
+
+        fprintf (stderr, KYEL "sizeof(uint16_t) * num_vals = %llu\n" RESET, sizeof(uint16_t) * num_out_vals);
+
+        stream.flush();
+        stream.async_send_heap(h, [] (const boost::system::error_code &ec, spead2::item_pointer_t bytes_transferred)
+        {
+            if (ec)
+                std::cerr << ec.message() << '\n';
+            else
+                std::cout << "Sent " << bytes_transferred << " bytes in heap\n";
+        });
+
+
+        // spead2::send::heap end(0x3, f);
+        // end.add_end();
+        // (*stream).async_send_heap(end, [] (const boost::system::error_code &ec, spead2::item_pointer_t bytes_transferred) {});
+        
+
         // fprintf (stderr, KGRN "out\n" RESET);
 
-        free(align_buffer);
-        free(beamformed);
+        // free(align_buffer);
+        // free(beamformed);
+
+        buff_count = (buff_count + 1) % 2;
         // free(buffer1);
         // free(buffer2);
     }

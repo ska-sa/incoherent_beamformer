@@ -1,5 +1,5 @@
 all:
-	g++ dada_beamform.c child_beam.c spead2/common_thread_pool.cpp spead2/common_flavour.cpp spead2/send_heap.cpp spead2/send_udp.cpp spead2/send_stream.cpp -std=c++11 -fopenmp -O3 -fPIC -Wl,-x -I/home/kat/test/install/psrdada/src/ -I/home/kat/git/incoherent_beamformer/dada_processing/spead2 -L/home/kat/git/incoherent_beamformer/dada_processing/libs -fpermissive -lrdmacm -lboost_system -lspead2 -libverbs -lOpenCL -lm -lpsrdada -DIKATCP -o beamform
+	g++ dada_beamform.c child_beam.c spead2/common_thread_pool.cpp spead2/common_flavour.cpp spead2/send_heap.cpp spead2/send_udp.cpp spead2/send_stream.cpp -std=c++11 -fopenmp -O3 -fPIC -Wl,-x -I/home/kat/test/install/psrdada/src/ -I/home/kat/git/incoherent_beamformer/dada_processing/spead2 -L/home/kat/git/incoherent_beamformer/dada_processing/libs -fpermissive -lboost_system -lspead2 -libverbs -lOpenCL -lm -lpsrdada -DIKATCP -o beamform
 
 timing:
 	g++ dada_beamform.c timing.c spead2/common_thread_pool.cpp spead2/common_flavour.cpp spead2/send_heap.cpp spead2/send_udp.cpp spead2/send_stream.cpp -std=c++11 -fopenmp -O3 -fPIC -Wl,-x -I/home/kat/test/install/psrdada/src/ -I/home/kat/git/incoherent_beamformer/dada_processing/spead2 -L/home/kat/git/incoherent_beamformer/dada_processing/libs -fpermissive -lrdmacm -lboost_system -lspead2 -libverbs -lOpenCL -lm -lpsrdada -DIKATCP -o timing
