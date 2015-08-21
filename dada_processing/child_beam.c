@@ -300,6 +300,7 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
         fprintf (stderr, KRED "diff : %llu\n" RESET, ts1 - prev);
         prev = ts1;
         // spead_out (beamformed, ts1, num_out_vals, &stream);
+        stream.flush();
 
         spead2::flavour f(spead2::maximum_version, 64, 48, spead2::BUG_COMPAT_PYSPEAD_0_5_2);
         spead2::send::heap h(0x2, f);
@@ -312,33 +313,37 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
         fprintf (stderr, KGRN "HEY\n" RESET);
 
         spead2::descriptor desc2;
-        desc2.id = 0x1001;
+        desc2.id = 0x2001;
         desc2.name = "DATA";
         desc2.description = "a 1D array of beamformed data";
         char buffer[64];
         sprintf(buffer, "{'shape': (%llu), 'fortran_order': False, 'descr': 'i2'}", num_out_vals);
         desc2.numpy_header = buffer;
 
-        stream.flush();
+        
 
         fprintf (stderr, KGRN "num_vals = %llu\n" RESET, num_out_vals);
-        h.add_item(0x1000, &ts1, sizeof(unsigned long long), true);
+        fprintf (stderr, KYEL "ts1 = %llu\n", ts1);
+        h.add_descriptor(desc1);
+        h.add_item(0x1000, &ts1, sizeof(ts1), true);
+
+        h.add_descriptor(desc2);
         if (buff_count == 0){
-            h.add_item(0x1001, beam1, sizeof(uint16_t) * num_out_vals, true);
+            h.add_item(0x2001, beam1, sizeof(uint16_t) * num_out_vals, true);
             // free(beam2);
         }
         else
         {
-            h.add_item(0x1001, beam2, sizeof(uint16_t) * num_out_vals, true);
+            h.add_item(0x2001, beam2, sizeof(uint16_t) * num_out_vals, true);
             // free(beam1);
         }
 
-        h.add_descriptor(desc1);
-        h.add_descriptor(desc2);
+        
+        
 
         fprintf (stderr, KYEL "sizeof(uint16_t) * num_vals = %llu\n" RESET, sizeof(uint16_t) * num_out_vals);
 
-        stream.flush();
+        
         stream.async_send_heap(h, [] (const boost::system::error_code &ec, spead2::item_pointer_t bytes_transferred)
         {
             if (ec)
