@@ -56,7 +56,8 @@
 #define DADA_NUM_READERS 1
 #define DADA_NUM_BUFS 8
 #define NUM_HEAPS_PER_BUFFER 32
-#define NUM_HEAPS_PER_ORDER_BUF 8
+
+#define MAX_TS 1099511627776
 
 #define TIMESTAMPS_PER_HEAP 1
 #define TIMESTAMP_INCREMENT 512
@@ -69,6 +70,7 @@
 #define ORDER_BUFFER_SIZE NUM_WORKERS * EXPECTED_HEAP_LEN * 32
 #define ORDER_BUFFER_SEGMENT NUM_WORKERS * EXPECTED_HEAP_LEN * 8 
 #define DROPPED_PACKET_BUFFER_SIZE NUM_WORKERS * 4
+#define NUM_HEAPS_PER_ORDER_BUF ORDER_BUFFER_SIZE / ORDER_BUFFER_SIZE
 
 #define ORDER_BUFFER_KEY 0x10236
 #define DROPPED_PACKET_BUFFER_KEY 0x10237
@@ -263,12 +265,13 @@ struct snap_shot
     unsigned int numHeaps;
     int parentPID;
 
-    unsigned long long order_buffer_tail;
-    
+    unsigned long long order_buffer_tail; //location of next write to order buffer
 
     int master_pid;
     char* buffer; //global pointer to current buffer (NOT NECESSARY?)
     unsigned long long prior_ts; //first ts for this buffer
+    unsigned long long prev_prior_ts[10]; //first ts for last buffer
+    int ppts_pos;
     int buffer_created;  //Is the buffer full (NOTNECESSARY?)
     int buffer_connected;
     int first_thread;
@@ -524,6 +527,32 @@ int simple_writer_open (dada_hdu_t * hdu)
 
 int count;
 
+void set_timestamp_header(dada_hdu_t * hdu, unsigned long long ts){
+  // get the size of each header block
+  uint64_t header_size = ipcbuf_get_bufsz (hdu->header_block);
+  char buffer[64];
+
+  // get a pointer to the header block
+  char * header = ipcbuf_get_next_write (hdu->header_block);
+  if (! header )
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not get next header block\n");
+    fprintf(stderr, KRED "Could not get next header block\n" RESET);
+  }
+
+  if (ascii_header_set (header, "TS", "%llu", ts) < 0)
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not write TELESCOPE to header\n");
+    fprintf(stderr, KRED "Could not write TELESCOPE to header\n" RESET);
+  }
+
+  ipcbuf_mark_filled (hdu->header_block, header_size);
+}
+
+
+/*
+dadaThread function thread handles copying data form the order buffer into dada_buffers
+ */
 int dadaThread(struct spead_api_module_shared *s)
 {
     count = 0;
@@ -539,15 +568,6 @@ int dadaThread(struct spead_api_module_shared *s)
     // printf(stderr, "%d %d\n", SHMMIN, SHMMAX);
     fprintf (stderr, KRED " size of hdu_t = %d\n", sizeof(ipcbuf_t));
     dada_hdu_set_key(hdu, dadaBufId);
-
-    int ts_file;
-
-    if (dadaBufId == DADA_BUF_ID){
-        ts_file = open("/data1/dada_test/ts.dat", O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
-    }
-    else{
-      ts_file = open("/data2/dada_test/ts.dat", O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
-    }
 
     if (hdu == NULL)
     {
@@ -588,21 +608,83 @@ int dadaThread(struct spead_api_module_shared *s)
     fprintf(stderr, KGRN "WAITING FOR SIGNAL\n" RESET);
     sigwait(&sset, &sig);
     fprintf(stderr, KGRN "SIGNAL RECIEVED\n" RESET);
-    // int count = 0;
+
+    struct snap_shot *ss;
+
+    ss = get_data_spead_api_module_shared(s);
+
+    set_timestamp_header(hdu, ss->prev_prior_ts);
+    int count = 0;
+    
+    int ts_file;
+    int order_buffer_tail_file;
+    int order_buffer_head_file;
+
+    int order_buffer_tail_file_2;
+    int order_buffer_head_file_2;
+    int ts_file_2;
+
+    if (dadaBufId == DADA_BUF_ID){
+      ts_file = open("/data1/dada_test/ts_file.dat", O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+      ts_file_2 = open("/data1/dada_test/ts_file_2.dat", O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+      fprintf(stderr, "/data1/dada_test/ts_file.dat");
+      order_buffer_tail_file = open("/data1/dada_test/tail_file.dat", O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+      order_buffer_head_file = open("/data1/dada_test/head_file.dat", O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+      order_buffer_tail_file_2 = open("/data1/dada_test/tail_file_2.dat", O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+      order_buffer_head_file_2 = open("/data1/dada_test/head_file_2.dat", O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+    }
+    else{
+      ts_file = open("/data2/dada_test/ts_file.dat", O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+      ts_file_2 = open("/data2/dada_test/ts_file_2.dat", O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+      fprintf(stderr, "/data2/dada_test/ts_file.dat");
+      order_buffer_tail_file = open("/data2/dada_test/tail_file.dat", O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+      order_buffer_head_file = open("/data2/dada_test/head_file.dat", O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+      order_buffer_tail_file_2 = open("/data2/dada_test/tail_file_2.dat", O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+      order_buffer_head_file_2 = open("/data2/dada_test/head_file_2.dat", O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+    }
+
+    unsigned long long prev_ts;
+    int ppts_pos = 0;
+    int tscount = 0;
+    int countsig2 = 0;
+    int to_dada_buffer_count = 0;
     while(sig != SIGINT){
         
 
         if (sig == SIGUSR1){
             to_dada_buffer();
+            lock_spead_api_module_shared(s);
+            ss->order_buffer_read_pos = order_buffer_tail;
+            pwrite(ts_file, &ss->prev_prior_ts[ppts_pos], sizeof(ss->prev_prior_ts[ppts_pos]), sizeof(ss->prev_prior_ts[ppts_pos]) * to_dada_buffer_count);
+            pwrite (order_buffer_head_file, &order_buffer_tail, sizeof(order_buffer_tail), sizeof(order_buffer_tail) * to_dada_buffer_count);
+            pwrite (order_buffer_tail_file, &(ss->order_buffer_tail), sizeof(ss->order_buffer_tail), sizeof(ss->order_buffer_tail) * to_dada_buffer_count);
+            set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
+            unlock_spead_api_module_shared(s);
+
+            to_dada_buffer_count++;
             // count++;
             // fprintf(stderr, KYEL "TO_DADA\n" RESET);
         }
 
         if (sig == SIGUSR2){
+            fprintf(stderr, KGRN "GETTING BUFFER\n" RESET);
             ipcio_close_block_write (hdu->data_block, dadaBufSize);
             uint64_t block_id;
+
+            fprintf(stderr, KRED "ss->prev_prior_ts : %llu\n" RESET, ss->prev_prior_ts[ppts_pos]);
+            fprintf(stderr, KRED "diff : %llu\n" RESET, ss->prev_prior_ts[ppts_pos] - prev_ts);
+            // set_timestamp_header(hdu, ss->prev_prior_ts[ppts_pos]);
+            
+           
+            ppts_pos = (ppts_pos + 1) % 10;
+            prev_ts = ss->prev_prior_ts[ppts_pos];
+            
             buffer = ipcio_open_block_write (hdu->data_block, &block_id);
             fprintf(stderr, KGRN "NEXT BUFFER\n" RESET);
+            pwrite(ts_file_2, &ss->prev_prior_ts[ppts_pos], sizeof(ss->prev_prior_ts[ppts_pos]), sizeof(ss->prev_prior_ts[ppts_pos]) * tscount);
+            tscount++;
+            fprintf(stderr, KYEL "tscount : %d\n" RESET, tscount);
+            fprintf(stderr, KYEL "sizeof(ss->prev_prior_ts[ppts_pos]) * tscount : %llu\n" RESET, sizeof(ss->prev_prior_ts[ppts_pos]) * tscount);
 
             if (!buffer)
             {
@@ -611,18 +693,27 @@ int dadaThread(struct spead_api_module_shared *s)
               return -1;
             }
 
+            pwrite (order_buffer_head_file_2, &order_buffer_tail, sizeof(order_buffer_tail), sizeof(order_buffer_tail) * countsig2);
+            pwrite (order_buffer_tail_file_2, &(ss->order_buffer_tail), sizeof(ss->order_buffer_tail), sizeof(ss->order_buffer_tail) * countsig2);
+
+            pwrite (order_buffer_head_file, &order_buffer_tail, sizeof(order_buffer_tail), sizeof(order_buffer_tail) * to_dada_buffer_count);
+            pwrite (order_buffer_tail_file, &(ss->order_buffer_tail), sizeof(ss->order_buffer_tail), sizeof(ss->order_buffer_tail) * to_dada_buffer_count);
+            countsig2++;
+            to_dada_buffer();           
+
         }
         sigwait(&sset, &sig);
-        if (count % 1000 == 0){
-        // fprintf(stderr, KYEL "After sig\n" RESET);
-    }
+        // fprintf(stderr, KGRN "SIGNAL RECIEVED\n" RESET);
+    //     if (count % 1000 == 0){
+    //     // fprintf(stderr, KYEL "After sig\n" RESET);
+    // }
 
         // if (sig == SIGINT){
         //     fprintf (stderr, KRED "recieved interupt" RESET);
         //     return 1;
         // }
     }
-
+    close(ts_file);
 
     fprintf (stderr, KRED "[%d] exiting dada thread" RESET, getpid());
     ipcio_stop(hdu->data_block);
@@ -675,6 +766,8 @@ void *spead_api_setup(struct spead_api_module_shared *s)
         ss->prior_ts = 0;
         ss->first_thread = 0;
         ss->numHeaps = 0;
+        ss-> ppts_pos = 0;
+        // ss->prev_prior_ts = (unsigned long long)maloc(sizeof(unsigned long long) * 10);
 
         if (ss->buffer_created == 0){
             ss->buffer_created == 1;
@@ -697,14 +790,17 @@ void *spead_api_setup(struct spead_api_module_shared *s)
             fprintf (stderr, KRED "ob_id = %d\n" RESET, ss->ob_id);
             fprintf (stderr, KRED "dpb_id = %d\n" RESET, ss->dpb_id);
             ss->parentPID = getpid();
-            set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
-            unlock_spead_api_module_shared(s);
+            
 
             order_buffer = (char *)shmat(ss->ob_id, NULL, 0);
             dropped_packet_buffer = (char *)shmat(ss->dpb_id, NULL, 0);
             sb = ss->sb;
             o_b_sem_id = ss->o_b_sem_id;
             order_buffer_tail = 0;
+
+            set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
+            unlock_spead_api_module_shared(s);
+
             pthread_sigmask(SIG_BLOCK, &sset, NULL);
             dadaThread(s);
             // pthread_create(&dada, NULL, dadaThread, &n1);
@@ -838,27 +934,31 @@ void to_dada_buffer ()  //Should only be called by master thread
 
 
 
-
+/*
+Handle incoming heap
+ */
 int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_group *ig, void *data)
 {
     // fprintf(stderr, "PACKET RECIEVED");
     struct snap_shot *ss;
     struct spead_api_item *itm;
     unsigned long long ts;
-    unsigned long long offset;
+    long long offset;
 
     ss = get_data_spead_api_module_shared(s); //Get shared data module
     itm = NULL;
-    itm = get_spead_item_with_id(ig, timestampSpeadId);
+    itm = get_spead_item_with_id(ig, timestampSpeadId);  //Get timestamp item from heap
 
     if (itm == NULL){
         fprintf(stderr, "timestampSpeadId = %d", timestampSpeadId);
      fprintf(stderr, "%s: No timestamp data found (id: 0x%x)\n", __func__, TIMESTAMP_SPEAD_ID);
     return -1;
     }
+
     // TS is 5 byte unsigned 
     ts = (long long)itm->i_data[0] + (long long)itm->i_data[1] * 256 + (long long)itm->i_data[2] * 256 * 256 + (long long)itm->i_data[3] * 256 * 256 * 256 + (long long)itm->i_data[4] * 256 * 256 * 256 * 256;
-    itm = get_spead_item_with_id(ig, dataSpeadId);
+    
+    itm = get_spead_item_with_id(ig, dataSpeadId);  //Get beamformer data data
 
     if (itm == NULL){
         fprintf(stderr, "%s: No beamformer payload data found.\n", __func__); 
@@ -898,7 +998,7 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
     // fprintf(stderr, KGRN "[%d] BUFFER CONNECTED? %d\n" RESET, getpid(), ss->buffer_connected);
     
     if (ss->buffer_connected == 1){
-        if (order_buffer == NULL){ //Must be first time non master thread has run
+        if (order_buffer == NULL){ //Must be first time thread has run
             prior_ts = ss->prior_ts;
             order_buffer = (char *)shmat(ss->ob_id, NULL, 0);
             dropped_packet_buffer = (char *)shmat(ss->dpb_id, NULL, 0);
@@ -907,14 +1007,36 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
             order_buffer_tail = 0;
         }
 
-        if (prior_ts < ss->prior_ts)
+        if (prior_ts != ss->prior_ts)  //New prior_ts
             prior_ts = ss->prior_ts;
+        
+        // if (ts <= numHeapsPerBuf * timestampIncrement && prior_ts > numHeapsPerBuf * timestampIncrement) //Does this make sense?
+        if (ts < prior_ts){ //This seems like what I want to handle wrapping.
+          if (ts > timestampIncrement * numHeapsPerBuf){ //This ts is from the past (possibly more than 1 order buffer in the future, unlikely)
+            fprintf(stderr, KRED "late heap, dropped\n" RESET);
+            fprintf (stderr, KYEL "offset = %llu, ss->order_buffer_tail = %llu\n" RESET, offset, ss->order_buffer_tail);
+            fprintf (stderr, KYEL "ts = %lld, prior_ts = %llu\n" RESET, ts, prior_ts);
+            unlock_spead_api_module_shared(s);
+            return 0;
+          }
+          offset = (MAX_TS - prior_ts + ts) / timestampIncrement * expectedHeapLen;
+        }
+        else //ts has not wrapped
+          offset = (ts - prior_ts) / timestampIncrement * expectedHeapLen;
 
-        offset = (ts - prior_ts) / timestampIncrement * expectedHeapLen;
+        if (offset < 0){  // This should never happen
+          fprintf(stderr, KRED "late heap, dropped\n" RESET);
+          fprintf (stderr, KYEL "offset = %llu, ss->order_buffer_tail = %llu\n" RESET, offset, ss->order_buffer_tail);
+          fprintf (stderr, KYEL "ts = %lld, prior_ts = %llu\n" RESET, ts, prior_ts);
+          unlock_spead_api_module_shared(s);
+          return 0;
+        }
+
         // fprintf(stderr, KGRN "[%d] TO_ORDER_BUFFER\n" RESET, getpid());
-        write_to_order_buffer(itm->i_data, offset);  //Copy data to buffer
+        write_to_order_buffer(itm->i_data, offset);  //Copy data to order buffer, May need to ensure we are not overwriting data that still needs to go to dada
         // lock_spead_api_module_shared(s);
         long long check = offset - ss->order_buffer_tail; //If this difference is greater than a orderbuffer segment, then we should move data to dada buffer
+        //ss->order_buffer_tail should be the last location read from the order buffer to the dada_buffer
 
         if (check < 0)
             check = check * -1;
@@ -924,8 +1046,13 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
             if (offset >= dadaBufSize){  //If the offset is greater than a DADA buffer, we need to open a new buffer and reset counters
                 int ret = kill(ss->parentPID,SIGUSR2);
                 fprintf (stderr, KRED "SIGNAL SENT\n" RESET);
+                // fprintf (stderr, KYEL "check = %lld, obSegment * 2 = %llu\n" RESET, check, obSegment * 2);
+                // fprintf (stderr, KYEL "offset = %llu, ss->order_buffer_tail = %llu\n" RESET, offset, ss->order_buffer_tail);
+                // fprintf (stderr, KYEL "ts = %lld, prior_ts = %llu\n" RESET, ts, prior_ts);
+                ss->prev_prior_ts[ss->ppts_pos] = ss->prior_ts;
+                ss->ppts_pos= (ss->ppts_pos+1) % 10;
                 unsigned long long add = numHeapsPerBuf * timestampIncrement; //How much to add to the timstamp
-                ss->prior_ts = (ss->prior_ts + add) % ULLONG_MAX;  //New prior_ts
+                ss->prior_ts = (ss->prior_ts + add) % (MAX_TS + 1);  //New prior_ts
                 prior_ts = ss->prior_ts;
                 offset = (ts - prior_ts) / timestampIncrement * expectedHeapLen;
             }
@@ -934,6 +1061,8 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
             ss->order_buffer_tail = (ss->order_buffer_tail + obSegment) % dadaBufSize;
             set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
         }
+
+        // write_to_order_buffer(itm->i_data, offset);  //Copy data to order buffer
     }
     else
         fprintf(stderr, KYEL "NOT CONNECTED YET\n" RESET);
