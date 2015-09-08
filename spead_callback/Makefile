@@ -2,6 +2,9 @@
 all:
 	gcc ipcutil.c to_buffer.c -fPIC -shared -Wl,-x -I/home/kat/Chris/spead/src -I/home/kat/Chris/psrdada/src -L./libs -lOpenCL -lm -lpsrdada -DIKATCP -o to_buffer.so
 
+tmp:
+	gcc ipcutil.c to_buffer_tmp.c -fPIC -shared -Wl,-x -I/home/kat/Chris/spead/src -I/home/kat/Chris/psrdada/src -L./libs -lOpenCL -lm -lpsrdada -DIKATCP -o to_buffer_tmp.so
+
 toFile:
 	gcc toFile.c -fPIC -shared -Wl,-x -I/home/frb/incoherent_beamformer/dada_testing -I/home/frb/spead-master/src -I/usr/local/include -L./libs -lOpenCL -lm -ldada_buffer -lspead -DIKATCP -o toFile.so
 
