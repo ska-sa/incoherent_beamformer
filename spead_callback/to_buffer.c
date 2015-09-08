@@ -11,6 +11,8 @@
 #include <signal.h>
 #include <pthread.h>
 
+// #include <math.h>
+
 
 // #include "to_buffer.h"
 
@@ -115,6 +117,12 @@ unsigned int noDroppedPackets;
 unsigned int numDroppedPackets;
 unsigned int numRecievedPackets;
 
+
+//For DSPSR
+int sync_time, byte_offset;
+char* target[50];
+float centre_freq, microseconds;
+
 void get_settings()
 {
     char * env_temp;
@@ -176,6 +184,18 @@ void get_settings()
     if (env_temp != NULL) numHeapsPerOB = atoi(env_temp);
     else numHeapsPerOB = NUM_HEAPS_PER_BUFFER;
 
+    env_temp = getenv("SYNC_TIME");
+    if (env_temp != NULL) sync_time = atoi(env_temp);
+    else sync_time = 0;
+
+    env_temp = getenv("CENTRE_FREQ");
+    if (env_temp != NULL) centre_freq = atof(env_temp);
+    else centre_freq = 1822.0;
+
+    env_temp = getenv("TARGET");
+    if (env_temp != NULL) sprintf (target, env_temp);
+    else sprintf (target, "NO TARGET");
+
     if (numHeapsPerBuf % numHeapsPerOB != 0)
     {
         fprintf(stderr, "Number of heaps per DADA buffer = %u\n Not divisible by num heaps per order buffer = %u",numHeapsPerBuf, numHeapsPerOB);
@@ -195,7 +215,7 @@ void get_settings()
         exit(0);
     }
 
-    obSegment = obSize / 32;
+    obSegment = obSize / 16;
     numBitsInSegment = numHeapsPerOB / 4;
     fprintf(stderr, KYEL "numBitsInSegment = %d" RESET, numBitsInSegment);
     if (numBitsInSegment < 32)
@@ -353,6 +373,8 @@ void spead_api_destroy(struct spead_api_module_shared *s, void *data)
 
 }
 
+struct tm utc_start;
+
 // function to write the header to the datablock
 int simple_writer_open (dada_hdu_t * hdu)
 {
@@ -367,7 +389,7 @@ int simple_writer_open (dada_hdu_t * hdu)
     fprintf(stderr, KRED "Could not get next header block\n" RESET);
   }
 
-  struct tm utc_start = *localtime(&startTime);
+  utc_start = *localtime(&startTime);
   time_t     now;
     struct tm  ts;
     time(&now);
@@ -382,7 +404,20 @@ int simple_writer_open (dada_hdu_t * hdu)
     multilog (hdu->log, LOG_WARNING, "Could not write TELESCOPE to header\n");
     fprintf(stderr, KRED "Could not write TELESCOPE to header\n" RESET);
   }
+
+  if (ascii_header_set (header, "MICROSECONDS", "%f", microseconds) < 0)
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not write TELESCOPE to header\n");
+    fprintf(stderr, KRED "Could not write TELESCOPE to header\n" RESET);
+  }
+
   if (ascii_header_set (header, "HDR_SIZE", "%d", 4096) < 0)
+  {
+    multilog (hdu->log, LOG_WARNING, "Could not write TELESCOPE to header\n");
+    fprintf(stderr, KRED "Could not write TELESCOPE to header\n" RESET);
+  }
+
+  if (ascii_header_set (header, "HDR_VERSION", "%f", 1.0) < 0)
   {
     multilog (hdu->log, LOG_WARNING, "Could not write TELESCOPE to header\n");
     fprintf(stderr, KRED "Could not write TELESCOPE to header\n" RESET);
@@ -405,7 +440,7 @@ int simple_writer_open (dada_hdu_t * hdu)
     fprintf(stderr, KRED "Could not write DEC to header\n" RESET);
   }
 
-  float tsamp = 0.000256*1000000;
+  float tsamp = 2.56;
   if (ascii_header_set (header, "TSAMP", "%f", tsamp) < 0)
   {
     multilog (hdu->log, LOG_WARNING, "Could not write TSAMP to header\n");
@@ -428,7 +463,7 @@ int simple_writer_open (dada_hdu_t * hdu)
     fprintf(stderr, KRED "Could not write TELESCOPE to header\n" RESET);
   } 
 
-  sprintf (buffer, "PLACEHOLDER");
+  sprintf (buffer, target);
   if (ascii_header_set (header, "SOURCE", "%s", buffer) < 0)
   {
     multilog (hdu->log, LOG_WARNING, "Could not write SOURCE to header\n");
@@ -442,15 +477,15 @@ int simple_writer_open (dada_hdu_t * hdu)
     fprintf(stderr, KRED "Could not write SOURCE to header\n" RESET);
   }
 
-  sprintf (buffer, "PLACEHOLDER");
-  if (ascii_header_set (header, "FREQ", "%s", buffer) < 0)
+  // sprintf (buffer, );
+  if (ascii_header_set (header, "FREQ", "%f", centre_freq) < 0)
   {
     multilog (hdu->log, LOG_WARNING, "Could not write SOURCE to header\n");
     fprintf(stderr, KRED "Could not write SOURCE to header\n" RESET);
   }
 
   sprintf (buffer, "PLACEHOLDER");
-  if (ascii_header_set (header, "BANDWIDTH", "%s", buffer) < 0)
+  if (ascii_header_set (header, "BW", "%d", -400) < 0)
   {
     multilog (hdu->log, LOG_WARNING, "Could not write SOURCE to header\n");
     fprintf(stderr, KRED "Could not write SOURCE to header\n" RESET);
@@ -491,21 +526,21 @@ int simple_writer_open (dada_hdu_t * hdu)
   }
 
   sprintf (buffer, "PLACEHOLDER");
-  if (ascii_header_set (header, "BW", "%s", buffer) < 0)
+  if (ascii_header_set (header, "BW", "%d", -400) < 0)
   {
     multilog (hdu->log, LOG_WARNING, "Could not write SOURCE to header\n");
     fprintf(stderr, KRED "Could not write SOURCE to header\n" RESET);
   }
 
   sprintf (buffer, "PLACEHOLDER");
-  if (ascii_header_set (header, "OBS_OFFSET", "%d", 0) < 0)
+  if (ascii_header_set (header, "OBS_OFFSET", "%u", byte_offset) < 0)
   {
     multilog (hdu->log, LOG_WARNING, "Could not write SOURCE to header\n");
     fprintf(stderr, KRED "Could not write SOURCE to header\n" RESET);
   }
 
   sprintf (buffer, "PLACEHOLDER");
-  if (ascii_header_set (header, "RESOLUTION", "%d", 1) < 0)
+  if (ascii_header_set (header, "RESOLUTION", "%d", 262144) < 0)
   {
     multilog (hdu->log, LOG_WARNING, "Could not write SOURCE to header\n");
     fprintf(stderr, KRED "Could not write SOURCE to header\n" RESET);
@@ -587,6 +622,29 @@ int dadaThread(struct spead_api_module_shared *s)
         fprintf(stderr, KRED "CONNECT FAILED\n" RESET);
         // return EXIT_FAILURE;
     }
+
+
+    fprintf(stderr, KGRN "WAITING FOR SIGNAL\n" RESET);
+    sigwait(&sset, &sig);
+    fprintf(stderr, KGRN "SIGNAL RECIEVED\n" RESET);
+
+    struct snap_shot *ss;
+
+    ss = get_data_spead_api_module_shared(s);
+
+    unsigned int seconds = (int)((float)ss->prior_ts/12207.03125);
+
+    startTime = sync_time + seconds;
+    microseconds = ((float)ss->prior_ts/12207.03125 - seconds) * 1000000;
+
+    float num_heaps = microseconds / 2.56;
+    byte_offset = num_heaps * expectedHeapLen;
+
+    fprintf(stderr, "num_heaps = %f\n", num_heaps);
+
+    fprintf (stderr, "Start time = %u\n", startTime);
+
+
     simple_writer_open(hdu);
 
     if (hdu == NULL)
@@ -611,13 +669,9 @@ int dadaThread(struct spead_api_module_shared *s)
       return -1;
     }
 
-    fprintf(stderr, KGRN "WAITING FOR SIGNAL\n" RESET);
-    sigwait(&sset, &sig);
-    fprintf(stderr, KGRN "SIGNAL RECIEVED\n" RESET);
+    
 
-    struct snap_shot *ss;
-
-    ss = get_data_spead_api_module_shared(s);
+    
 
     // set_timestamp_header(hdu, ss->prev_prior_ts);
 
@@ -660,9 +714,9 @@ int dadaThread(struct spead_api_module_shared *s)
         lock_spead_api_module_shared(s);
 
         if (ss->order_buffer_read_head == 0){
-          fprintf(stderr, KGRN "ss->order_buffer_read_head = %llu\n" RESET, ss->order_buffer_read_head);
+          // fprintf(stderr, KGRN "ss->order_buffer_read_head = %llu\n" RESET, ss->order_buffer_read_head);
           
-          fprintf (stderr, "DADATHREAD - prior_ts = %llu\n", ss->prior_ts);
+          // fprintf (stderr, "DADATHREAD - prior_ts = %llu\n", ss->prior_ts);
           
           ipcio_close_block_write (hdu->data_block, dadaBufSize);
           buffer = ipcio_open_block_write (hdu->data_block, &block_id);
@@ -994,7 +1048,7 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
         }
 
         if (prior_ts != ss->prior_ts){  //New prior_ts
-          fprintf(stderr, "[%d] -- prior_ts = %llu, ss->prior_ts = %llu\n",getpid(), prior_ts, ss->prior_ts);
+          // fprintf(stderr, "[%d] -- prior_ts = %llu, ss->prior_ts = %llu\n",getpid(), prior_ts, ss->prior_ts);
             prior_ts = ss->prior_ts;
           }
 
@@ -1030,7 +1084,7 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
         else
           check = (dadaBufSize + offset - ss->order_buffer_read_head);
 
-        if (( check > obSegment * 2))
+        if (( check > obSegment * 4))
         {
           // fprintf(stderr, "check = %llu , obSegment * 2 = %llu\n", check, obSegment * 2);
           // fprintf(stderr, "ts = %llu, prior_ts = %llu ts - prior_ts = %llu\n",ts, prior_ts, ts - prior_ts);
