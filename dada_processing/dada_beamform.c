@@ -165,6 +165,8 @@ int accumulate (char * incoming, uint16_t* accumulated, uint64_t size){
     // int num_out_vals = num_vals * 4; //Number of 8bit values per outgoing accumulation
 
     uint64_t num_spectra = size/num_vals;
+    fprintf(stderr, "num_spectra = %llu\n",num_spectra);
+    fprintf(stderr, "size = %llu\n",size);
 
     if (num_spectra % ACCUMULATE != 0){
         fprintf(stderr, KRED "Accumulation period doesn't divide into dada_buffer size");
@@ -183,30 +185,44 @@ int accumulate (char * incoming, uint16_t* accumulated, uint64_t size){
 
     // fprintf (stderr, "accumulated_size/ACCUMULATE = %d\n", ACCUMULATE);
     // 
-    for (i = 0; i < 1024 * 2; i = i + 4)
-    {
-        uint8_t xRe, xIm, yRe, yIm;
+    // 
+    omp_set_num_threads(4);
+    //TODO, Need to deal with bit growth, if all values are 1 then accumulating 256
+    //will grow the number out of a uint8, should use a uint16 and shift right 8 bits after accumulation?
+    #pragma omp parallel for private(i) private(k)  //openmp does not help (seems to cancel out -O3 flag)
+    for (j = 0; j < num_accs; j++){
+        int step = j * ACCUMULATE * 2048;
+        for (k = 0; k < ACCUMULATE; k++){
+            int pos = step + k * 2048; 
+            for (i = 0; i < 2048; i = i + 4)
+            {
+                uint8_t xRe, xIm, yRe, yIm;
+                int pi = pos + i;           //incoming pos
+                int pa = j * 4096 + i * 2;  //accumulation pos
 
-        xRe = incoming[i] & 240; //REAL X
-        xIm = incoming[i] & 15; //IM X
-        yRe = incoming[i + 2] & 240; //REAL Y
-        yIm = incoming[i + 2] & 15; //IM Y
-        
+                xRe = incoming[pi] & 240; //REAL X
+                xIm = incoming[pi] & 15; //IM X
+                yRe = incoming[pi + 2] & 240; //REAL Y
+                yIm = incoming[pi + 2] & 15; //IM Y
+                
 
-        accumulated[2 * i] = xRe * xRe;
-        accumulated[2 * i + 1] = yRe * yRe;
-        accumulated[2 * i + 2] = xRe * yRe;
-        accumulated[2 * i + 3] = xIm * yIm;
+                accumulated[pa] = accumulated[pa] + xRe * xRe;
+                accumulated[pa + 1] = accumulated[pa + 1] + yRe * yRe;
+                accumulated[pa + 2] = accumulated[pa + 2] + xRe * yRe;
+                accumulated[pa + 3] = accumulated[pa + 3] + xIm * yIm;
 
-        xRe = incoming[i+1] & 240; //REAL X
-        xIm = incoming[i+1] & 15; //IM X
-        yRe = incoming[i + 3] & 240; //REAL Y
-        yIm = incoming[i + 3] & 15; //IM Y
+                xRe = incoming[pi + 1] & 240; //REAL X
+                xIm = incoming[pi + 1] & 15; //IM X
+                yRe = incoming[pi + 3] & 240; //REAL Y
+                yIm = incoming[pi + 3] & 15; //IM Y
 
-        accumulated[2*i + 4] = xRe * xRe;
-        accumulated[2*i + 5] = yRe * yRe;
-        accumulated[2*i + 6] = xRe * yRe;
-        accumulated[2*i + 7] = xIm * yIm;
+                accumulated[pa + 4] = accumulated[pa + 4] + xRe * xRe;
+                accumulated[pa + 5] = accumulated[pa + 5] + yRe * yRe;
+                accumulated[pa + 6] = accumulated[pa + 6] + xRe * yRe;
+                accumulated[pa + 7] = accumulated[pa + 7] + xIm * yIm;
+            }
+            // fprintf(stderr, "pos = %d\n", pos);
+        }
     }
 
     // omp_set_num_threads(4);
