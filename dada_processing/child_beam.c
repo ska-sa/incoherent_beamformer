@@ -62,7 +62,7 @@ void accumulate_and_beamform (char * incoming1, char * incoming2, uint16_t* beam
     // fprintf (stderr, "----------------BUFFER 2----------------\n");
     accumulate (incoming2, acc2, num_vals);
     // fprintf (stderr, "----------------BEAMFORM----------------\n");
-    // beamform (acc1, acc2, beamformed, num_vals);
+    beamform (acc1, acc2, beamformed, num_vals);
 
     free(acc1);
     free(acc2);
