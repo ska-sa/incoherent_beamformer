@@ -182,47 +182,73 @@ int accumulate (char * incoming, uint16_t* accumulated, uint64_t size){
     // fprintf (stderr, "ACCUMULATE\n");
 
     // fprintf (stderr, "accumulated_size/ACCUMULATE = %d\n", ACCUMULATE);
+    // 
+    for (i = 0; i < 1024 * 2; i = i + 4)
+    {
+        uint8_t xRe, xIm, yRe, yIm;
 
-    omp_set_num_threads(4);
-    //TODO, Need to deal with bit growth, if all values are 1 then accumulating 256
-    //will grow the number out of a uint8, should use a uint16 and shift right 8 bits after accumulation?
-    #pragma omp parallel for private(j) private(k)  //openmp does not help (seems to cancel out -O3 flag)
-    for (i = 0; i < num_accs; i++){
-        // accumulated[i] = (uint8_t*)malloc(sizeof(uint8_t) * N_CHANS * 2);
-        int pos = i * ACCUMULATE;
-        for (k = 0; k < ACCUMULATE; k++){
-            #pragma omp //parallel for
-            for (j = 0; j < num_vals/2; j = j + 4){
-                uint8_t xRe, xIm, yRe, yIm;
-                int p = (pos+k) * num_vals + 2 * j;
+        xRe = incoming[i] & 240; //REAL X
+        xIm = incoming[i] & 15; //IM X
+        yRe = incoming[i + 2] & 240; //REAL Y
+        yIm = incoming[i + 2] & 15; //IM Y
+        
 
-                xRe = (incoming[p] >> 4) & 15; //REAL X
-                xIm = incoming[p] & 15; //IM X
-                yRe = (incoming[p + 2] >> 4) & 15; //REAL Y
-                yRe = incoming[p + 2] >> 4; //IM Y
+        accumulated[2 * i] = xRe * xRe;
+        accumulated[2 * i + 1] = yRe * yRe;
+        accumulated[2 * i + 2] = xRe * yRe;
+        accumulated[2 * i + 3] = xIm * yIm;
 
-                p = i*num_vals*2+j*4;
+        xRe = incoming[i+1] & 240; //REAL X
+        xIm = incoming[i+1] & 15; //IM X
+        yRe = incoming[i + 3] & 240; //REAL Y
+        yIm = incoming[i + 3] & 15; //IM Y
 
-                accumulated[p] = accumulated[p] + xRe * xRe;
-                accumulated[p + 1] = accumulated[p+1] + yRe * yRe;
-                accumulated[p + 2] = accumulated[p+2] + xRe * yRe;
-                accumulated[p + 3] = accumulated[p+3] + xIm * yIm;
-                
-                //handle the weird order of incoming data
-                p = (pos+k) * num_vals + 2 * j + 2;
-                xRe = (incoming[p] >> 4) & 15; //REAL X
-                xIm = incoming[p] & 15; //IM X
-                yRe = (incoming[p + 2] >> 4) & 15; //REAL Y
-                yRe = incoming[p + 2] >> 4; //IM Y
-
-                p = i*num_vals*2+j*4 + 4;
-                accumulated[p] = accumulated[p] + xRe * xRe;
-                accumulated[p + 1] = accumulated[p+1] + yRe * yRe;
-                accumulated[p + 2] = accumulated[p+2] + xRe * yRe;
-                accumulated[p + 3] = accumulated[p+3] + xIm * yIm;
-            }
-        }
+        accumulated[2*i + 4] = xRe * xRe;
+        accumulated[2*i + 5] = yRe * yRe;
+        accumulated[2*i + 6] = xRe * yRe;
+        accumulated[2*i + 7] = xIm * yIm;
     }
+
+    // omp_set_num_threads(4);
+    // //TODO, Need to deal with bit growth, if all values are 1 then accumulating 256
+    // //will grow the number out of a uint8, should use a uint16 and shift right 8 bits after accumulation?
+    // #pragma omp parallel for private(j) private(k)  //openmp does not help (seems to cancel out -O3 flag)
+    // for (i = 0; i < num_accs; i++){
+    //     // accumulated[i] = (uint8_t*)malloc(sizeof(uint8_t) * N_CHANS * 2);
+    //     int pos = i * ACCUMULATE;
+    //     for (k = 0; k < ACCUMULATE; k++){
+    //         #pragma omp //parallel for
+    //         for (j = 0; j < num_vals/2; j = j + 4){
+    //             uint8_t xRe, xIm, yRe, yIm;
+    //             int p = (pos+k) * num_vals + 2 * j;
+
+    //             xRe = (incoming[p] >> 4) & 15; //REAL X
+    //             xIm = incoming[p] & 15; //IM X
+    //             yRe = (incoming[p + 2] >> 4) & 15; //REAL Y
+    //             yIm = incoming[p + 2] >> 4; //IM Y
+
+    //             p = i*num_vals*2+j*4;
+
+    //             accumulated[p] = accumulated[p] + xRe * xRe;
+    //             accumulated[p + 1] = accumulated[p+1] + yRe * yRe;
+    //             accumulated[p + 2] = accumulated[p+2] + xRe * yRe;
+    //             accumulated[p + 3] = accumulated[p+3] + xIm * yIm;
+                
+    //             //handle the weird order of incoming data
+    //             p = (pos+k) * num_vals + 2 * j + 2;
+    //             xRe = (incoming[p] >> 4) & 15; //REAL X
+    //             xIm = incoming[p] & 15; //IM X
+    //             yRe = (incoming[p + 2] >> 4) & 15; //REAL Y
+    //             yRe = incoming[p + 2] >> 4; //IM Y
+
+    //             p = i*num_vals*2+j*4 + 4;
+    //             accumulated[p] = accumulated[p] + xRe * xRe;
+    //             accumulated[p + 1] = accumulated[p+1] + yRe * yRe;
+    //             accumulated[p + 2] = accumulated[p+2] + xRe * yRe;
+    //             accumulated[p + 3] = accumulated[p+3] + xIm * yIm;
+    //         }
+    //     }
+    // }
     // fprintf (stderr, "i = %d, k = %d, j = %d\n", i, k, j);
     // fprintf (stderr, "size = %llu\n", size);
     // fprintf (stderr, "(i + k) * N_CHANS + j = %d\n", (i + k) * N_CHANS + j);
