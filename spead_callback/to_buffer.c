@@ -658,10 +658,11 @@ int dadaThread(struct spead_api_module_shared *s)
     }
 
 
-    fprintf (stderr, KRED "[%d] exiting dada thread" RESET, getpid());
+    
     ipcio_stop(hdu->data_block);
     dada_hdu_unlock_write(hdu);
     dada_hdu_disconnect(hdu);
+    fprintf (stderr, KRED "[%d] exiting dada thread" RESET, getpid());
     // raise (SIGINT);
     spead_api_destroy (s, "");
 }
