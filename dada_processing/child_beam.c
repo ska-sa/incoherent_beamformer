@@ -49,13 +49,13 @@ ipcbuf_t* data_block_1, data_block_2;
 key_t key_1, key_2;
 spead2::send::udp_stream * stream_p;
 
-void accumulate_and_beamform (char * incoming1, char * incoming2, uint16_t* beamformed, uint64_t size){
-    uint16_t *  acc1, * acc2;
+void accumulate_and_beamform (char * incoming1, char * incoming2, int16_t* beamformed, uint64_t size){
+    int16_t *  acc1, * acc2;
     int num_vals;
 
     uint64_t num_out_vals = size * 2 / ACCUMULATE;
-    acc1 = (uint16_t*)malloc(num_out_vals * sizeof(uint16_t));
-    acc2 = (uint16_t*)malloc(num_out_vals * sizeof(uint16_t));
+    acc1 = (int16_t*)malloc(num_out_vals * sizeof(int16_t));
+    acc2 = (int16_t*)malloc(num_out_vals * sizeof(int16_t));
     
     // fprintf (stderr, "----------------BUFFER 1----------------\n");
     num_vals = accumulate(incoming1, acc1, size);
@@ -75,7 +75,7 @@ void accumulate_and_beamform (char * incoming1, char * incoming2, uint16_t* beam
  * @ts num_vals number of values in beamformed array
  * @tp spead2 stream for sending data
  */
-void spead_out(uint16_t * beamformed, unsigned long long ts, uint64_t num_vals, spead2::send::udp_stream * stream)
+void spead_out(int16_t * beamformed, unsigned long long ts, uint64_t num_vals, spead2::send::udp_stream * stream)
 {
     fprintf (stderr, KRED "YOHO\n" RESET);
     //SPEAD STREAM SET UP
@@ -102,11 +102,11 @@ void spead_out(uint16_t * beamformed, unsigned long long ts, uint64_t num_vals, 
 
     fprintf (stderr, KGRN "num_vals = %llu\n" RESET, num_vals);
     h.add_item(0x1000, &ts, sizeof(unsigned long long), true);
-    h.add_item(0x1001, beamformed, sizeof(uint16_t) * num_vals, true);
+    h.add_item(0x1001, beamformed, sizeof(int16_t) * num_vals, true);
     h.add_descriptor(desc1);
     h.add_descriptor(desc2);
 
-    fprintf (stderr, KYEL "sizeof(uint16_t) * num_vals = %llu\n" RESET, sizeof(uint16_t) * num_vals);
+    fprintf (stderr, KYEL "sizeof(int16_t) * num_vals = %llu\n" RESET, sizeof(int16_t) * num_vals);
 
     (*stream).async_send_heap(h, [] (const boost::system::error_code &ec, spead2::item_pointer_t bytes_transferred)
     {
@@ -229,7 +229,7 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
              // return EXIT_FAILURE;
         }
 
-        uint16_t** beamformed, *beam1, *beam2;
+        int16_t** beamformed, *beam1, *beam2;
         int buff_count = 0;
         char* buffer1, *buffer2;
         char* align_buffer;
@@ -248,8 +248,8 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
             fprintf (stderr, "MAKING ALIGN BUFFER\n");
 
             align_buffer = (char*)malloc((*missalligned)->data_block->curbufsz);
-            beam1 = (uint16_t *)malloc(sizeof(uint16_t) * num_out_vals);
-            beam2 = (uint16_t *)malloc(sizeof(uint16_t) * num_out_vals);
+            beam1 = (int16_t *)malloc(sizeof(int16_t) * num_out_vals);
+            beam2 = (int16_t *)malloc(sizeof(int16_t) * num_out_vals);
             // fprintf(stderr, "YOLOin\n");
             memset(align_buffer, 0, (*missalligned)->data_block->curbufsz);
             // fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
@@ -269,11 +269,11 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
         
 
         if(buff_count == 0){
-            //beam1 = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
+            //beam1 = (int16_t *)malloc(sizeof(int16_t) * 67108864);
             accumulate_and_beamform ((*alligned)->data_block->curbuf, align_buffer, beam1, (*alligned)->data_block->curbufsz);
         }
         else{
-            //beam2 = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
+            //beam2 = (int16_t *)malloc(sizeof(int16_t) * 67108864);
             accumulate_and_beamform ((*alligned)->data_block->curbuf, align_buffer, beam2, (*alligned)->data_block->curbufsz);
         }
         // accumulate (buffer1, accumulated, hdu1->data_block->curbufsz);
@@ -331,19 +331,19 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
 
         h.add_descriptor(desc2);
         if (buff_count == 0){
-            h.add_item(0x2001, beam1, sizeof(uint16_t) * num_out_vals, true);
+            h.add_item(0x2001, beam1, sizeof(int16_t) * num_out_vals, true);
             // free(beam2);
         }
         else
         {
-            h.add_item(0x2001, beam2, sizeof(uint16_t) * num_out_vals, true);
+            h.add_item(0x2001, beam2, sizeof(int16_t) * num_out_vals, true);
             // free(beam1);
         }
 
         
         
 
-        fprintf (stderr, KYEL "sizeof(uint16_t) * num_vals = %llu\n" RESET, sizeof(uint16_t) * num_out_vals);
+        fprintf (stderr, KYEL "sizeof(int16_t) * num_vals = %llu\n" RESET, sizeof(int16_t) * num_out_vals);
 
         
         stream.async_send_heap(h, [] (const boost::system::error_code &ec, spead2::item_pointer_t bytes_transferred)

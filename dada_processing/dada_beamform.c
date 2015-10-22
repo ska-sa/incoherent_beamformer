@@ -157,7 +157,7 @@ void initial_header(dada_hdu_t * hdu){
     ipcbuf_mark_cleared(hdu->header_block);
 }
 
-int accumulate (char * incoming, uint16_t* accumulated, uint64_t size){
+int accumulate (char * incoming, int16_t* accumulated, uint64_t size){
     //accumulate values in incoming returns the length of accumulated array
     //Accumulated array contains int8_t with 8bit real, 8bit imaginary
 
@@ -196,7 +196,7 @@ int accumulate (char * incoming, uint16_t* accumulated, uint64_t size){
             int pos = step + k * 2048; 
             for (i = 0; i < 2048; i = i + 4)
             {
-                uint8_t xRe, xIm, yRe, yIm;
+                int8_t xRe, xIm, yRe, yIm;
                 int pi = pos + i;           //incoming pos
                 int pa = j * 4096 + i * 2;  //accumulation pos
 
@@ -271,7 +271,7 @@ int accumulate (char * incoming, uint16_t* accumulated, uint64_t size){
     return num_out_vals;
 }
 
-void beamform (uint16_t * acc1, uint16_t * acc2, uint16_t * beamformed, uint64_t num_vals){
+void beamform (int16_t * acc1, int16_t * acc2, int16_t * beamformed, uint64_t num_vals){
     int i;
     // beamformed = (uint16_t*)malloc(num_vals * sizeof(uint16_t));
     for (i = 0; i < num_vals; i++)

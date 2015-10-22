@@ -26,6 +26,6 @@ unsigned long long get_timestamp(dada_hdu_t * hdu);
 
 void initial_header(dada_hdu_t * hdu);
 
-int accumulate (char * incoming, uint16_t* accumulated, uint64_t size);
+int accumulate (char * incoming, int16_t* accumulated, uint64_t size);
 
-void beamform (u_int16_t * acc1, u_int16_t * acc2, u_int16_t * beamformed, uint64_t num_vals);
+void beamform (int16_t * acc1, int16_t * acc2, int16_t * beamformed, uint64_t num_vals);
