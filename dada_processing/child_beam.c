@@ -53,14 +53,14 @@ void accumulate_and_beamform (char * incoming1, char * incoming2, uint16_t* beam
     uint16_t *  acc1, * acc2;
     int num_vals;
 
-    uint64_t num_out_vals = size / N_CHANS * N_POLS * N_CHANS * 4 / ACCUMULATE;
+    uint64_t num_out_vals = size * 2 / ACCUMULATE;
     acc1 = (uint16_t*)malloc(num_out_vals * sizeof(uint16_t));
     acc2 = (uint16_t*)malloc(num_out_vals * sizeof(uint16_t));
     
     // fprintf (stderr, "----------------BUFFER 1----------------\n");
     num_vals = accumulate(incoming1, acc1, size);
     // fprintf (stderr, "----------------BUFFER 2----------------\n");
-    accumulate (incoming2, acc2, num_vals);
+    accumulate (incoming2, acc2, size);
     // fprintf (stderr, "----------------BEAMFORM----------------\n");
     beamform (acc1, acc2, beamformed, num_vals);
 
@@ -243,11 +243,13 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
 
         // fprintf(stderr, "YOLO\n");
 
+        uint64_t num_out_vals = (*missalligned)->data_block->curbufsz * 2 / ACCUMULATE;
         if (init == 0){ //first buffer
             fprintf (stderr, "MAKING ALIGN BUFFER\n");
+
             align_buffer = (char*)malloc((*missalligned)->data_block->curbufsz);
-            beam1 = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
-            beam2 = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
+            beam1 = (uint16_t *)malloc(sizeof(uint16_t) * num_out_vals);
+            beam2 = (uint16_t *)malloc(sizeof(uint16_t) * num_out_vals);
             // fprintf(stderr, "YOLOin\n");
             memset(align_buffer, 0, (*missalligned)->data_block->curbufsz);
             // fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
@@ -267,18 +269,18 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
         
 
         if(buff_count == 0){
-            // beam1 = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
+            //beam1 = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
             accumulate_and_beamform ((*alligned)->data_block->curbuf, align_buffer, beam1, (*alligned)->data_block->curbufsz);
         }
         else{
-            beam2 = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
-            // accumulate_and_beamform ((*alligned)->data_block->curbuf, align_buffer, beam2, (*alligned)->data_block->curbufsz);
+            //beam2 = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
+            accumulate_and_beamform ((*alligned)->data_block->curbuf, align_buffer, beam2, (*alligned)->data_block->curbufsz);
         }
         // accumulate (buffer1, accumulated, hdu1->data_block->curbufsz);
 
 
         memcpy (align_buffer, (*missalligned)->data_block->curbuf + (*missalligned)->data_block->curbufsz - buffer_allignment, buffer_allignment);
-        int num_out_vals = (*alligned)->data_block->curbufsz / N_CHANS * N_POLS * N_CHANS * 4 / ACCUMULATE;
+        // int num_out_vals = (*alligned)->data_block->curbufsz / N_CHANS * N_POLS * N_CHANS * 4 / ACCUMULATE;
         diff = clock() - start;
         double wdiff = omp_get_wtime() - wstart; 
         int msec = diff * 1000 / CLOCKS_PER_SEC;
