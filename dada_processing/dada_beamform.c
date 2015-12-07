@@ -165,16 +165,16 @@ int accumulate (char * incoming, int16_t* accumulated, uint64_t size){
     // int num_out_vals = num_vals * 4; //Number of 8bit values per outgoing accumulation
 
     uint64_t num_spectra = size/num_vals;
-    fprintf(stderr, "num_spectra = %llu\n",num_spectra);
-    fprintf(stderr, "size = %llu\n",size);
+    //fprintf(stderr, "num_spectra = %llu\n",num_spectra);
+    //fprintf(stderr, " = %llu\n",size);
 
     if (num_spectra % ACCUMULATE != 0){
         fprintf(stderr, KRED "Accumulation period doesn't divide into dada_buffer size");
     }
     // fprintf (stderr, "ACCUMULATE\n");
 
-    uint64_t num_out_vals = num_spectra * N_CHANS * 4 / ACCUMULATE;
-
+    uint64_t num_out_vals = size * 2 / ACCUMULATE;
+    //fprintf(stderr, "num_out_vals = %llu\n", num_out_vals);
     uint64_t num_accs = num_spectra / ACCUMULATE;
 
     // accumulated = (uint16_t*)malloc(num_out_vals * sizeof(uint16_t));
@@ -225,6 +225,8 @@ int accumulate (char * incoming, int16_t* accumulated, uint64_t size){
         }
     }
 
+    //fprintf(stderr, "i = %d, j = %d, k = %d . pi = %d, pa = %d\n",i,j,k,(j-1) * ACCUMULATE * 2048 + (k-1) * 2048 + i -1, (j-1) * 4096 + (i-1) * 2);
+
     // omp_set_num_threads(4);
     // //TODO, Need to deal with bit growth, if all values are 1 then accumulating 256
     // //will grow the number out of a uint8, should use a uint16 and shift right 8 bits after accumulation?
@@ -274,6 +276,7 @@ int accumulate (char * incoming, int16_t* accumulated, uint64_t size){
 void beamform (int16_t * acc1, int16_t * acc2, int16_t * beamformed, uint64_t num_vals){
     int i;
     // beamformed = (uint16_t*)malloc(num_vals * sizeof(uint16_t));
+    //fprintf (stderr, "num_vals = %llu\n", num_vals);
     for (i = 0; i < num_vals; i++)
     {
         // fprintf(stderr, "%d ,", i);

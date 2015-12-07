@@ -48,7 +48,7 @@
 #define BYTES_PER_SAMPLE 1
 #define TIMESTAMP_INCREMENT 2048
 
-#define SYNCTIME 1442309785
+#define SYNCTIME 1449493762
 
 #define NUM_SYNC_LOOPS 2
 
@@ -78,6 +78,7 @@ struct pseudo_header
 };
 
 uint64_t current_time;
+uint32_t time_wraps;
 uint32_t int_count; 
 
 /*
@@ -480,11 +481,14 @@ int send_udp (int16_t * in_data, uint64_t size){
     if (int_count > int_per_sec){
         current_time++;
         int_count=int_count % int_per_sec;
-	//fprintf (stderr, "\ncurrent_time = %llu\n",current_time);
+	fprintf (stderr, "\ncurrent_time = %llu\n",current_time);
     }
     //fprintf (stderr, "\nint_count = %llu\n",int_count);
-//    fprintf(stderr, "end loop\n");    
+//    fprintf(stderr, "end loop\n");
+    free(pseudogram);    
     }
+    fprintf (stderr, "\nint_count = %llu\n",int_count);
+//    free(pseudogram);
     //s.close();
     //fprintf(stderr,"exit sending\n");
     return 0;
@@ -509,13 +513,13 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
     uint64_t count = 0;
     unsigned long long read_head = 0;
     //unsigned long long acc_len = hdu->data_block->curbufsz * 2 / ACCUMULATE;
-    uint64_t out_buffer_size = sizeof(int16_t) * 67108864 * 10;
-    fprintf (stderr, "out_buffer_size = %llu\n", out_buffer_size);
-    int ob_id, ts_id;
-    int16_t * out;
-    out = ipc_alloc("6543", out_buffer_size, IPC_CREAT | IPC_EXCL | 0666, &ob_id);
+    //uint64_t out_buffer_size = sizeof(int16_t) * 67108864 * 10;
+    //fprintf (stderr, "out_buffer_size = %llu\n", out_buffer_size);
+    //int ob_id, ts_id;
+    //int16_t * out;
+    //out = ipc_alloc("6543", out_buffer_size, IPC_CREAT | IPC_EXCL | 0666, &ob_id);
     // ts = ipc_alloc("5432", sizeof(unsigned long long), IPC_CREAT | IPC_EXCL | 0666, &ts_id);
-    memset(out,0,out_buffer_size);
+    //memset(out,0,out_buffer_size);
     
     fprintf (stderr, "after memset\n");
     if (dada_hdu_lock_read (hdu) < 0){
@@ -554,7 +558,17 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
     num_vals = accumulate (hdu->data_block->curbuf, accumulated, hdu->data_block->curbufsz);
     //bf_align (accumulated, out, num_vals, pos1, out_buffer_size / 2);
     // sync[0][pos1/67108864/sizeof(int16_t)] = 1;
-    
+    uint64_t acc_size = hdu->data_block->curbufsz/ACCUMULATE;
+    fprintf (stderr, "acc_size = %llu\n", acc_size);   
+    uint64_t out_buffer_size = sizeof(int16_t) * 67108864 * 10;
+    fprintf (stderr, "out_buffer_size = %llu\n", out_buffer_size);
+    int ob_id, ts_id;
+    int16_t * out;
+    out = ipc_alloc("6543", out_buffer_size, IPC_CREAT | IPC_EXCL | 0666, &ob_id);
+    // ts = ipc_alloc("5432", sizeof(unsigned long long), IPC_CREAT | IPC_EXCL | 0666, &ts_id);
+    memset(out,0,out_buffer_size);
+
+
     // ssize_t size =  ipcio_close_block_read(hdu->data_block, hdu->data_block->curbufsz);
     ssize_t size;
     //free (accumulated);
@@ -679,12 +693,26 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
             pthread_mutex_unlock(&tsync_mutex);
         }
         //fprintf(stderr, KYEL "num_vals = %llu\n" RESET, num_vals);
+        //fprintf(stderr, KYEL "tsdiff2= %llu\n" RESET, tsdiff2);
+        //fprintf(stderr, KYEL "diff= %lld\n" RESET, diff);
        
-        if (tsdiff2 * acc_len / 536870912 - read_head > num_vals * 2)
+	uint32_t wrapped = 0;
+
+        if (ts < first_ts && wrapped == 0){
+            time_wraps++;
+            wrapped = 1;
+        }
+        else if (ts - first_ts > 536870912 * 4 && wrapped == 1)
+            wrapped = 0;
+
+        if (tsdiff2 * acc_len / 536870912 - read_head > num_vals)
         {
-            int seconds = (int)((float)ts/12207.03125);
+            //int seconds = (int)((float)ts/12207.03125);
+            uint64_t seconds = time_wraps * 1099511627776 + ts * 0.000000005;
+            //fprintf (stderr, "\nts = %llu, ts/12207.03125 = %llu\n",ts, seconds);
             current_time = SYNCTIME + seconds;
-            int_count = (int)(((float)ts/12207.03125 - seconds) * 1000000/2.56);
+            int_count = ts%200000000/512;
+            fprintf (stderr, "\n[o]int_count = %llu\n",int_count);
             //fprintf (stderr, "read_head = %llu\n", read_head);
             // fprintf (stderr, "tsdiff2 = %lld\n", tsdiff2);
             // fprintf (stderr, "(tsdiff2 * 67108864 / 536870912 - read_head) = %lld, num_vals * sizeof(int16_t) * 2 = %d\n", (tsdiff2 * 67108864 / 536870912 - read_head), num_vals * sizeof(int16_t) * 2);
@@ -784,7 +812,15 @@ static void run_ringbuffered(int port1, int port2, int port3, dada_hdu_t * hdu)
     // prev2 = ts2;
     ts4 = *((unsigned long long *)items3[0].ptr);
     tsdiff4 = ts4 < first_ts? first_ts - ts4 : - static_cast< long long >( ts4 - first_ts );
+    
+    //uint32_t wrapped = 0;
 
+    //if (ts < first_ts && wrapped == 0){
+//	time_wraps++;
+    //    wrapped = 1;
+  //  }
+    //else if (ts - first_ts > 536870912 * 4 && wrapped == 1)
+      //  wrapped = 0;
 
     while (true)
     {
