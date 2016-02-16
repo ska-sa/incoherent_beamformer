@@ -30,9 +30,9 @@
 #include "ipcutil.h"
 
 //data out
-
+#include <unistd.h>
 #include <string.h> //memset
-#include <sys/socket.h>    //for socket ofcourse
+#include <sys/socket.h>    //for socket of course
 #include <stdlib.h> //for exit(0);
 #include <errno.h> //For errno - the error number
 #include <netinet/udp.h>   //Provides declarations for udp header
@@ -41,7 +41,7 @@
 #define DADA_BUF_1 0x1234
 #define DADA_BUF_2 0x2345
 
-#define ACCUMULATE 256
+//#define ACCUMULATE 256
 #define N_CHANS 1024
 #define N_POLS 2
 #define TIMESTAMPS_PER_HEAP 4
@@ -118,6 +118,7 @@ struct thread_data{
    int buffer_id;
    int ts_id;
    unsigned long long num_vals;
+   uint64_t acc_len;
 };
 
 int master_id = 3;            //Master-thread which we synchronise to
@@ -168,6 +169,9 @@ void show_heap(const spead2::recv::heap &fheap)
     // std::cout << std::flush;
 }
 
+
+//Beamform two beams, with wrapping to deal with the fact that each beam will start being captured at different
+//times, so the first data in each block is from a different time.
 void bf_align (int16_t * beam, int16_t * align, uint64_t num_vals, int64_t pos, uint64_t align_size){
     //uint64_t beam_size = num_vals * sizeof(uint16_t);
     //fprintf (stderr, KRED "pos = %llu\n" RESET , pos);
@@ -185,7 +189,7 @@ void bf_align (int16_t * beam, int16_t * align, uint64_t num_vals, int64_t pos, 
     // fprintf (stderr, "out_align\n");
 }
 
-//int port, unsigned long long first_ts, int buffer_id, int ts_id
+//Capture data from the incoming spead stream from the 2 beam beamformers
 void capture_spead(void* threadarg)
 {
     fprintf (stderr, KYEL "IN THREAD\n" RESET);
@@ -197,6 +201,7 @@ void capture_spead(void* threadarg)
     int buffer_id = my_data->buffer_id;
     int ts_id = my_data->ts_id;
     int tid = my_data->tid;
+    uint64_t acc_len = my_data->acc_len;
 
     int data_id, timestamp_id;
 
@@ -204,7 +209,7 @@ void capture_spead(void* threadarg)
     unsigned long long ts2;
     long long tsdiff2;
     unsigned long long ts;
-    uint64_t out_buffer_size = sizeof(uint16_t) * 67108864 * 10;
+    uint64_t out_buffer_size = sizeof(uint16_t) * acc_len * 4 * 10;
 
     spead2::thread_pool worker;
     // std::shared_ptr<spead2::memory_pool> pool = std::make_shared<spead2::memory_pool>(16384, 26214400, 12, 8);
@@ -365,6 +370,8 @@ void capture_spead(void* threadarg)
 
 }
 
+
+//Send the beamformed data via UDP
 int send_udp (int16_t * in_data, uint64_t size){
    //fprintf(stderr,"sending\n"); 
 
@@ -387,33 +394,33 @@ int send_udp (int16_t * in_data, uint64_t size){
     }
     //fprintf(stderr, "BEFORE SEND LOOP\n");
     uint64_t i;
-    for (i = 0; i < size; i=i+8192){
+    for (i = 0; i < size; i=i+4096){
     //Datagram to represent the packet
     char datagram[sizeof(struct iphdr) + sizeof(struct udphdr) + 8208] , source_ip[32] , *data , *pseudogram;
-   // fprintf(stderr, "datagram made\n"); 
+    //fprintf(stderr, "datagram made\n"); 
     //zero out the packet buffer
     memset (datagram, 0, 8208);
-     
+    //fprintf(stderr, "memset\n"); 
     //IP header
     struct iphdr *iph = (struct iphdr *) datagram;
      
     //UDP header
     struct udphdr *udph = (struct udphdr *) (datagram + sizeof (struct ip));
-     
     struct sockaddr_in sin;
     struct pseudo_header psh;
-   //fprintf(stderr, "before data pointer\n");
+    //fprintf(stderr, "before data pointer\n");
      
     //Data part
     data = datagram + sizeof(struct iphdr) + sizeof(struct udphdr);
-    // strcpy(data , "ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+    //strcpy(data , "ABCDEFGHIJKLMNOPQRSTUVWXYZ");
     memcpy(data, &current_time, sizeof(uint64_t));
     memcpy(data + sizeof(uint64_t), &int_count, sizeof(uint32_t));
-    memcpy(data + sizeof(uint64_t) + sizeof(uint32_t), &int_per_sec, sizeof(uint32_t));
+    uint32_t accumulate = ACCUMULATE;
+    memcpy(data + sizeof(uint64_t) + sizeof(uint32_t), &accumulate, sizeof(uint32_t));
     //fprintf(stderr, "data copy i = %llu\n", i);
     memcpy(data + 16, in_data + i, 8192);
 
-   // fprintf(stderr, "after data copy \n");
+    //fprintf(stderr, "after data copy \n");
      
     //some address resolution
     strcpy(source_ip , "169.254.100.100");
@@ -453,7 +460,7 @@ int send_udp (int16_t * in_data, uint64_t size){
     psh.udp_length = htons(sizeof(struct udphdr) + 8208 );
    // fprintf(stderr, "psizin\n"); 
     int psize = sizeof(struct pseudo_header) + sizeof(struct udphdr) + 8208;
-   // fprintf(stderr, "MALLOC!\n");
+   //fprintf(stderr, "MALLOC!\n");
     pseudogram = malloc(psize);
    // fprintf(stderr, "before memcpy\n"); 
     memcpy(pseudogram , (char*) &psh , sizeof (struct pseudo_header));
@@ -473,28 +480,33 @@ int send_udp (int16_t * in_data, uint64_t size){
         //Data send successfully
         else
         {
+            
+            usleep(600);
             //fprintf (stderr, "Packet Send. Length : %d \n" , iph->tot_len);
         }
     }
 
-    int_count=int_count+256;
+    int_count=int_count+ACCUMULATE;
     if (int_count > int_per_sec){
         current_time++;
         int_count=int_count % int_per_sec;
 	fprintf (stderr, "\ncurrent_time = %llu\n",current_time);
     }
     //fprintf (stderr, "\nint_count = %llu\n",int_count);
-//    fprintf(stderr, "end loop\n");
-    free(pseudogram);    
+    //fprintf(stderr, "end loop\n");
+    free(pseudogram); 
+    //delete [] datagram;   
     }
     fprintf (stderr, "\nint_count = %llu\n",int_count);
 //    free(pseudogram);
     //s.close();
+    shutdown(s,2);
     //fprintf(stderr,"exit sending\n");
     return 0;
 }
 
-
+//Main thread, capture F-engine data and accumulate, start the threads to capture spead streams form 2 beam beamformers
+//Send data out via UDP
 void run (int port1, int port2, int port3, dada_hdu_t * hdu)
 {
     int acc_count = 0;
@@ -560,7 +572,7 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
     // sync[0][pos1/67108864/sizeof(int16_t)] = 1;
     uint64_t acc_size = hdu->data_block->curbufsz/ACCUMULATE;
     fprintf (stderr, "acc_size = %llu\n", acc_size);   
-    uint64_t out_buffer_size = sizeof(int16_t) * 67108864 * 10;
+    uint64_t out_buffer_size = sizeof(int16_t) *  acc_len * 4 * 10;
     fprintf (stderr, "out_buffer_size = %llu\n", out_buffer_size);
     int ob_id, ts_id;
     int16_t * out;
@@ -579,6 +591,7 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
     thread_data_array[0].buffer_id = ob_id;
     thread_data_array[0].ts_id = ts_id;
     thread_data_array[0].num_vals = num_vals;
+    thread_data_array[0].acc_len = acc_len;
     fprintf (stderr, KGRN "CREATE THREAD\n" RESET);
 
     thread_data_array[1].tid = 1;
@@ -587,6 +600,7 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
     thread_data_array[1].buffer_id = ob_id;
     thread_data_array[1].ts_id = ts_id;
     thread_data_array[1].num_vals = num_vals;
+    thread_data_array[1].acc_len = acc_len;
 
     thread_data_array[2].tid = 2;
     thread_data_array[2].port = 7163;
@@ -594,6 +608,7 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
     thread_data_array[2].buffer_id = ob_id;
     thread_data_array[2].ts_id = ts_id;
     thread_data_array[2].num_vals = num_vals;
+    thread_data_array[2].acc_len = acc_len;
 
     //pthread_create(&threads[0], NULL, capture_spead, &thread_data_array[0]);
     //pthread_create(&threads[1], NULL, capture_spead, &thread_data_array[1]);
@@ -666,7 +681,7 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
             //fprintf(stderr, KYEL "2timestamp = %llu\n" RESET, ts2);
             //fprintf(stderr, "diff2 = %lld\n", diff);
 
-            accumulated = (int16_t *)malloc(sizeof(int16_t) * acc_len);
+            //accumulated = (int16_t *)malloc(sizeof(int16_t) * acc_len);
             int64_t pos1 = ((tsdiff2) * acc_len / 536870912) % (out_buffer_size/2);
             fprintf (stderr, KRED "[%d] pos = %llu\n" RESET ,3, pos1);
             num_vals = accumulate (hdu->data_block->curbuf, accumulated, hdu->data_block->curbufsz);
@@ -716,7 +731,7 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
             //fprintf (stderr, "read_head = %llu\n", read_head);
             // fprintf (stderr, "tsdiff2 = %lld\n", tsdiff2);
             // fprintf (stderr, "(tsdiff2 * 67108864 / 536870912 - read_head) = %lld, num_vals * sizeof(int16_t) * 2 = %d\n", (tsdiff2 * 67108864 / 536870912 - read_head), num_vals * sizeof(int16_t) * 2);
-            int64_t size = (num_vals * sizeof(int16_t));
+            int64_t size = (num_vals);
             pwrite(out_file, out + read_head % (out_buffer_size/2), size, read_head*2);
             // pwrite(out_file, accumulated, sizeof(int16_t) * 67108864, read_head);
             // pwrite(out_file, buffer, sizeof(int16_t) * 67108864, read_head);
@@ -728,13 +743,13 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
             // read_head = read_head + size;
             // read_head = read_head + sizeof(int16_t) * 67108864;
         }
-
+       //free(accumulated);
        }
      free(accumulated);
      //fprintf(stderr, "EXITING\n");
 }
 
-
+//Not used anymore, none threaded version
 static void run_ringbuffered(int port1, int port2, int port3, dada_hdu_t * hdu)
 {
     spead2::thread_pool worker;
