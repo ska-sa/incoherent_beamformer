@@ -48,11 +48,11 @@
 #define BYTES_PER_SAMPLE 1
 #define TIMESTAMP_INCREMENT 2048
 
-#define SYNCTIME 1449493762
+#define SYNCTIME 1455797736
 
 #define NUM_SYNC_LOOPS 2
 
-#define ARTEMIS_IP "169.254.100.101"
+#define ARTEMIS_IP "192.168.202.13"
 #define FILE_LOC "/home/kat/data"
 
 #define KNRM  "\x1B[0m"
@@ -125,7 +125,6 @@ int master_id = 3;            //Master-thread which we synchronise to
 unsigned long long tsync; //time to sync with
 pthread_mutex_t tsync_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t master_id_mutex = PTHREAD_MUTEX_INITIALIZER;
-
 
 void show_heap(const spead2::recv::heap &fheap)
 {
@@ -371,9 +370,37 @@ void capture_spead(void* threadarg)
 }
 
 
+struct udp_thread_data{
+   int tid;
+   int port;
+   unsigned long long read_head;
+   uint64_t size;
+   int out_buf_id;
+   uint64_t current_time;
+   unsigned long long num_vals;
+   uint32_t int_count;
+   uint64_t out_buffer_size;
+};
+
+
 //Send the beamformed data via UDP
-int send_udp (int16_t * in_data, uint64_t size){
+//int send_udp (int16_t * in_data, uint64_t size){
+int send_udp (void* threadarg){
    //fprintf(stderr,"sending\n"); 
+
+    struct udp_thread_data *my_data;
+    my_data = (struct udp_thread_data *) threadarg;
+
+    int out_buf_id = my_data->out_buf_id;
+    uint64_t current_time = my_data->current_time;
+    uint32_t int_count = my_data->int_count;
+    unsigned long long read_head  = my_data->read_head;
+    uint64_t size = my_data->size;
+    uint64_t out_buffer_size = my_data->out_buffer_size;    
+
+    uint16_t * order_buffer;
+    order_buffer = (int16_t *)shmat(out_buf_id, NULL, 0);
+    uint16_t * in_data = order_buffer + read_head % (out_buffer_size/2);
 
      //UDP out
     int s = socket (AF_INET, SOCK_RAW, IPPROTO_RAW);
@@ -429,7 +456,7 @@ int send_udp (int16_t * in_data, uint64_t size){
    // fprintf(stderr, "bla\n");
     sin.sin_port = htons(8080);
     sin.sin_addr.s_addr = inet_addr (ARTEMIS_IP);
-   // fprintf(stderr, "SIN BABY\n");
+   
     //Fill in the IP Header
     iph->ihl = 5;
     iph->version = 4;
@@ -481,7 +508,7 @@ int send_udp (int16_t * in_data, uint64_t size){
         else
         {
             
-            usleep(600);
+            usleep(500);
             //fprintf (stderr, "Packet Send. Length : %d \n" , iph->tot_len);
         }
     }
@@ -499,7 +526,9 @@ int send_udp (int16_t * in_data, uint64_t size){
     }
     fprintf (stderr, "\nint_count = %llu\n",int_count);
 //    free(pseudogram);
-    //s.close();
+    int t = 1;
+    setsockopt(s,SOL_SOCKET,SO_REUSEADDR,&t,sizeof(int));
+    close(s);
     shutdown(s,2);
     //fprintf(stderr,"exit sending\n");
     return 0;
@@ -735,8 +764,23 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
             pwrite(out_file, out + read_head % (out_buffer_size/2), size, read_head*2);
             // pwrite(out_file, accumulated, sizeof(int16_t) * 67108864, read_head);
             // pwrite(out_file, buffer, sizeof(int16_t) * 67108864, read_head);
-            fprintf (stderr, KRED "read_head %% out_buffer_size = %llu\n" RESET ,  read_head % (out_buffer_size/2));
-            send_udp(out + read_head % (out_buffer_size/2) , size);
+            //fprintf (stderr, KRED "read_head %% out_buffer_size = %llu\n" RESET ,  read_head % (out_buffer_size/2))
+            //int out_buf_id = threadarg->thread_buf_id;
+            //uint64_t current_time = threadarg->timestamp;
+            //uint32_t int_count = threadarg->int_count;
+            //unsigned long long read_head = threadarg->read_head;
+            //uint64_t size = threadarg->size;
+            
+            struct udp_thread_data thread_args = {0};
+            thread_args.out_buf_id=ob_id;
+            thread_args.current_time=current_time;
+            thread_args.int_count=int_count;
+            thread_args.read_head=read_head;
+            thread_args.size=size;
+            thread_args.out_buffer_size = out_buffer_size;
+            pthread_t udp_thread;
+            pthread_create(&udp_thread, NULL, send_udp, &thread_args);
+            //send_udp(out + read_head % (out_buffer_size/2) , size);
             //fprintf (stderr, "read_head = %llu, size = %llu", read_head, size);
             memset(out + read_head % (out_buffer_size/2), 0, size);
             read_head = read_head + num_vals;
