@@ -525,7 +525,8 @@ int send_udp (void* threadarg){
     //delete [] datagram;   
     }
     //fprintf (stderr, "\nint_count = %llu\n",int_count);
-//    free(pseudogram);
+//    free(pseudogram);i
+    memset(in_data, 0, size);
     int t = 1;
     setsockopt(s,SOL_SOCKET,SO_REUSEADDR,&t,sizeof(int));
     close(s);
@@ -752,11 +753,11 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu, int sync_time)
         if (ts < first_ts && wrapped == 0){
             time_wraps++;
             wrapped = 1;
-            fprintf(stderr, "wrapped = 1, time_wraps = %u, ts = %llu, first_ts = %llu",time_wraps, ts, first_ts);
+            fprintf(stderr, "wrapped = 1, time_wraps = %u, ts = %llu, first_ts = %llu\n",time_wraps, ts, first_ts);
         }
-        else if (ts - first_ts > 536870912 * 4 && wrapped == 1){
+        else if (ts - first_ts > 536870912 && wrapped == 1){
             wrapped = 0;
-            fprintf(stderr, "wrapped = 0, time_wraps = %u, ts = %llu, first_ts = %llu",time_wraps, ts, first_ts);
+            fprintf(stderr, "wrapped = 0, time_wraps = %u, ts = %llu, first_ts = %llu\n",time_wraps, ts, first_ts);
         }
 
         if (tsdiff2 * acc_len / 536870912 - read_head > num_vals)
@@ -770,7 +771,7 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu, int sync_time)
             //fprintf (stderr, "read_head = %llu\n", iad_head);
             // fprintf (stderr, "tsdiff2 = %lld\n", tsdiff2);
             // fprintf (stderr, "(tsdiff2 * 67108864 / 536870912 - read_head) = %lld, num_vals * sizeof(int16_t) * 2 = %d\n", (tsdiff2 * 67108864 / 536870912 - read_head), num_vals * sizeof(int16_t) * 2);
-            int64_t size = (num_vals)*2;
+            int64_t size = (num_vals * 2);
             pwrite(out_file, out + read_head % (out_buffer_size/2), size, read_head*2);
             // pwrite(out_file, accumulated, sizeof(int16_t) * 67108864, read_head);
             // pwrite(out_file, buffer, sizeof(int16_t) * 67108864, read_head);
@@ -792,7 +793,7 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu, int sync_time)
             pthread_create(&udp_thread, NULL, send_udp, &thread_args);
             //send_udp(out + read_head % (out_buffer_size/2) , size);
             //fprintf (stderr, "read_head = %llu, size = %llu", read_head, size);
-            memset(out + read_head % (out_buffer_size/2), 0, size);
+            //memset(out + read_head % (out_buffer_size/2), 0, size);
             read_head = read_head + num_vals;
             // read_head = read_head + size;
             // read_head = read_head + sizeof(int16_t) * 67108864;
