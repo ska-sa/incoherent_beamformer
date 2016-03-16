@@ -41,14 +41,14 @@
 #define DADA_BUF_1 0x1234
 #define DADA_BUF_2 0x2345
 
-//#define ACCUMULATE 256
+#define ACCUMULATE 256
 #define N_CHANS 1024
 #define N_POLS 2
 #define TIMESTAMPS_PER_HEAP 4
 #define BYTES_PER_SAMPLE 1
 #define TIMESTAMP_INCREMENT 2048
 
-#define SYNCTIME 1455797736
+#define SYNCTIME 1457272196
 
 #define NUM_SYNC_LOOPS 2
 
@@ -179,7 +179,7 @@ void bf_align (int16_t * beam, int16_t * align, uint64_t num_vals, int64_t pos, 
         beamform (beam, align + pos, align + pos, num_vals);
     }
     else{
-        //fprintf(stderr, "bf_align_2\n");
+        fprintf(stderr, "bf_align_2, pos = %llu, align_size= %llu\n",pos, align_size);
         uint64_t wrap = (align_size - pos);
         beamform (beam, align + pos, align + pos, wrap);
         //fprintf(stderr, "bf_align_wrap\n");
@@ -308,7 +308,7 @@ void capture_spead(void* threadarg)
 
             if (diff > 0 || master_id == tid){
                 pos2 = ((tsdiff2) * num_vals / 536870912) % (out_buffer_size/2);
-                fprintf (stderr, KRED "[%d] pos = %llu\n" RESET ,tid, pos2);
+                //fprintf (stderr, KRED "[%d] pos = %llu\n" RESET ,tid, pos2);
                 bf_align ((int16_t *) items1[data_id].ptr, order_buffer, num_vals, pos2, out_buffer_size/2);
                 fh1 = stream1.pop();
                 items1 = fh1.get_items();
@@ -330,7 +330,7 @@ void capture_spead(void* threadarg)
             // if (diff > 0 || ts == 0){
                 //fprintf (stderr, KYEL "[%d] second\n" RESET, tid, (diff)/536870912);
                 pos2 = ((tsdiff2) * num_vals / 536870912) % (out_buffer_size/2);
-                fprintf (stderr, KRED "[%d] pos = %llu\n" RESET ,tid, pos2);
+                //fprintf (stderr, KRED "[%d] pos = %llu\n" RESET ,tid, pos2);
                 bf_align ((int16_t *) items1[data_id].ptr, order_buffer, num_vals, pos2, out_buffer_size/2);
                 // sync[1][pos2/67108864/sizeof(uint16_t)] = 1;
                 fh1 = stream1.pop();
@@ -450,7 +450,7 @@ int send_udp (void* threadarg){
     //fprintf(stderr, "after data copy \n");
      
     //some address resolution
-    strcpy(source_ip , "169.254.100.100");
+    strcpy(source_ip , "192.168.202.14");
      
     sin.sin_family = AF_INET;
    // fprintf(stderr, "bla\n");
@@ -517,14 +517,14 @@ int send_udp (void* threadarg){
     if (int_count > int_per_sec){
         current_time++;
         int_count=int_count % int_per_sec;
-	fprintf (stderr, "\ncurrent_time = %llu\n",current_time);
+	//fprintf (stderr, "\ncurrent_time = %llu\n",current_time);
     }
     //fprintf (stderr, "\nint_count = %llu\n",int_count);
     //fprintf(stderr, "end loop\n");
     free(pseudogram); 
     //delete [] datagram;   
     }
-    fprintf (stderr, "\nint_count = %llu\n",int_count);
+    //fprintf (stderr, "\nint_count = %llu\n",int_count);
 //    free(pseudogram);
     int t = 1;
     setsockopt(s,SOL_SOCKET,SO_REUSEADDR,&t,sizeof(int));
@@ -536,7 +536,7 @@ int send_udp (void* threadarg){
 
 //Main thread, capture F-engine data and accumulate, start the threads to capture spead streams form 2 beam beamformers
 //Send data out via UDP
-void run (int port1, int port2, int port3, dada_hdu_t * hdu)
+void run (int port1, int port2, int port3, dada_hdu_t * hdu, int sync_time)
 {
     int acc_count = 0;
 
@@ -550,6 +550,7 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
     fprintf(stderr, KYEL "heap_size = %llu\n" RESET, heap_size);
     fprintf(stderr, KYEL "vals_per_heap = %llu\n" RESET, heap_size / BYTES_PER_SAMPLE);
     int out_file = 0;
+    //int out_file_spead = 0;
     char filename[255];
     uint64_t count = 0;
     unsigned long long read_head = 0;
@@ -666,8 +667,11 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
     }
 
     snprintf(filename,255,"%s/%llu.dat",FILE_LOC, first_ts);
-
+    
+    uint64_t spead_loc = 0;
     out_file = open(filename, O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+    snprintf(filename,255,"%s/%llu.dat.spead",FILE_LOC, first_ts);
+    //out_file_spead = open (filename, O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
     fprintf (stderr, "opened file %s", filename);
 
 
@@ -686,8 +690,9 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
             //fprintf(stderr, "diff = %lld\n", diff);
             
             int64_t pos1 = ((tsdiff2) * acc_len / 536870912) % (out_buffer_size/2);
-            fprintf (stderr, KRED "[%d] pos = %llu\n" RESET ,3, pos1);
-
+            //fprintf (stderr, KRED "[%d] pos = %llu\n" RESET ,3, pos1);
+            //pwrite(out_file_spead, hdu->data_block->curbuf, hdu->data_block->curbufsz, spead_loc);
+            spead_loc += hdu->data_block->curbufsz;
             num_vals = accumulate (hdu->data_block->curbuf, accumulated, hdu->data_block->curbufsz);
             bf_align (accumulated, out, num_vals, pos1, out_buffer_size/2);
             // sync[0][pos1/67108864/sizeof(int16_t)] = 1;
@@ -712,7 +717,9 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
 
             //accumulated = (int16_t *)malloc(sizeof(int16_t) * acc_len);
             int64_t pos1 = ((tsdiff2) * acc_len / 536870912) % (out_buffer_size/2);
-            fprintf (stderr, KRED "[%d] pos = %llu\n" RESET ,3, pos1);
+            //pwrite(out_file_spead, hdu->data_block->curbuf, hdu->data_block->curbufsz, spead_loc);
+            spead_loc += hdu->data_block->curbufsz;
+            //fprintf (stderr, KRED "[%d] pos = %llu\n" RESET ,3, pos1);
             num_vals = accumulate (hdu->data_block->curbuf, accumulated, hdu->data_block->curbufsz);
             bf_align (accumulated, out, num_vals, pos1, out_buffer_size/2);
             // sync[0][pos1/67108864/sizeof(int16_t)] = 1;
@@ -745,22 +752,25 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu)
         if (ts < first_ts && wrapped == 0){
             time_wraps++;
             wrapped = 1;
+            fprintf(stderr, "wrapped = 1, time_wraps = %u, ts = %llu, first_ts = %llu",time_wraps, ts, first_ts);
         }
-        else if (ts - first_ts > 536870912 * 4 && wrapped == 1)
+        else if (ts - first_ts > 536870912 * 4 && wrapped == 1){
             wrapped = 0;
+            fprintf(stderr, "wrapped = 0, time_wraps = %u, ts = %llu, first_ts = %llu",time_wraps, ts, first_ts);
+        }
 
         if (tsdiff2 * acc_len / 536870912 - read_head > num_vals)
         {
             //int seconds = (int)((float)ts/12207.03125);
             uint64_t seconds = time_wraps * 1099511627776 + ts * 0.000000005;
             //fprintf (stderr, "\nts = %llu, ts/12207.03125 = %llu\n",ts, seconds);
-            current_time = SYNCTIME + seconds;
+            current_time = sync_time + seconds;
             int_count = ts%200000000/512;
-            fprintf (stderr, "\n[o]int_count = %llu\n",int_count);
-            //fprintf (stderr, "read_head = %llu\n", read_head);
+            //fprintf (stderr, "\n[o]int_count = %llu\n",int_count);
+            //fprintf (stderr, "read_head = %llu\n", iad_head);
             // fprintf (stderr, "tsdiff2 = %lld\n", tsdiff2);
             // fprintf (stderr, "(tsdiff2 * 67108864 / 536870912 - read_head) = %lld, num_vals * sizeof(int16_t) * 2 = %d\n", (tsdiff2 * 67108864 / 536870912 - read_head), num_vals * sizeof(int16_t) * 2);
-            int64_t size = (num_vals);
+            int64_t size = (num_vals)*2;
             pwrite(out_file, out + read_head % (out_buffer_size/2), size, read_head*2);
             // pwrite(out_file, accumulated, sizeof(int16_t) * 67108864, read_head);
             // pwrite(out_file, buffer, sizeof(int16_t) * 67108864, read_head);
@@ -1017,6 +1027,8 @@ static void run_ringbuffered(int port1, int port2, int port3, dada_hdu_t * hdu)
 int main (int argc, char **argv)
 {
     dada_hdu_t * hdu;
+    
     connect_to_buffer(&hdu, DADA_BUF_1);
-    run (7160, 7161, 7162, hdu);
+    fprintf (stderr, "synctime = %d", atoi(argv[1]));
+    run (7160, 7161, 7162, hdu, atoi(argv[1]));
 }

@@ -2,6 +2,12 @@
 all:
 	gcc ipcutil.c to_buffer.c -fPIC -shared -Wl,-x -I/home/kat/git/spead/src/ -I/home/kat/test/install/psrdada/src -L/home/kat/git/incoherent_beamformer/spead_callback/libs -lOpenCL -lm -lpsrdada -lspead -DIKATCP -o to_buffer.so
 
+dc2:
+	gcc ipcutil.c to_buffer_dc2.c -fPIC -shared -Wl,-x -I/home/kat/git/spead/src/ -I/home/kat/test/install/psrdada/src -L/home/kat/git/incoherent_beamformer/spead_callback/libs -lOpenCL -lm -lpsrdada -lspead -DIKATCP -o to_buffer.so
+
+debug:
+	gcc ipcutil.c to_buffer_debug.c -fPIC -shared -Wl,-x -I/home/kat/git/spead/src/ -I/home/kat/test/install/psrdada/src -L/home/kat/git/incoherent_beamformer/spead_callback/libs -lOpenCL -lm -lpsrdada -lspead -DIKATCP -o to_buffer_debug.so
+
 toFile:
 	gcc toFile.c -fPIC -shared -Wl,-x -I/home/frb/incoherent_beamformer/dada_testing -I/home/frb/spead-master/src -I/usr/local/include -L./libs -lOpenCL -lm -ldada_buffer -lspead -DIKATCP -o toFile.so
 
