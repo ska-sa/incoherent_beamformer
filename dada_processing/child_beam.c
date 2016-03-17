@@ -122,12 +122,12 @@ void spead_out(int16_t * beamformed, unsigned long long ts, uint64_t num_vals, s
     (*stream).flush();
 }
 
-void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
+void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port, char* ip)
 {
 
     spead2::thread_pool tp;
     udp::resolver resolver(tp.get_io_service());
-    udp::resolver::query query("192.168.64.217", port);
+    udp::resolver::query query(ip, port);
     auto it = resolver.resolve(query);
     spead2::send::udp_stream stream(tp.get_io_service(), *it, spead2::send::stream_config(9000,  67108864 * 1.5));
     stream_p = &stream;
@@ -389,6 +389,6 @@ int main (int argc, char **argv)
     dada_hdu_t * hdu2;
     connect_to_buffer(&hdu1, DADA_BUF_1);
     connect_to_buffer(&hdu2, DADA_BUF_2);
-    if (argc == 2)
-        consume(hdu1,hdu2, argv[1]);
+    if (argc == 3)
+        consume(hdu1,hdu2, argv[1],argv[2]);
 }

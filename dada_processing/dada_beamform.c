@@ -277,6 +277,6 @@ void beamform (int16_t * acc1, int16_t * acc2, int16_t * beamformed, uint64_t nu
     for (i = 0; i < num_vals; i++)
     {
         // fprintf(stderr, "%d ,", i);
-        beamformed[i] = acc1[i] + acc2[i];
+        beamformed[i] = acc1[i];// + acc2[i];
     }
 }
