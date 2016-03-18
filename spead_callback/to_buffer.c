@@ -48,6 +48,7 @@
 
 #define NUM_WORKERS 4
 
+#define ACCUMULATE 64
 #define F_ID_SPEAD_ID 4096
 #define TIMESTAMP_SPEAD_ID 4097
 #define DATA_SPEAD_ID 4098
@@ -882,7 +883,7 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
     struct spead_api_item *itm;
     unsigned long long ts;
     long long offset;
-
+    int synced = 0;
     ss = get_data_spead_api_module_shared(s); //Get shared data module
     itm = NULL;
     itm = get_spead_item_with_id(ig, timestampSpeadId);
@@ -895,6 +896,9 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
     // TS is 5 byte unsigned 
     ts = (long long)itm->i_data[0] + (long long)itm->i_data[1] * 256 + (long long)itm->i_data[2] * 256 * 256 + (long long)itm->i_data[3] * 256 * 256 * 256 + (long long)itm->i_data[4] * 256 * 256 * 256 * 256;
     itm = get_spead_item_with_id(ig, dataSpeadId);
+
+    if (ts/timestampIncrement%(ACCUMULATE)==0 && synced == 0){
+    synced = 1;
 
     if (itm == NULL){
         fprintf(stderr, "%s: No beamformer payload data found.\n", __func__); 
@@ -991,6 +995,7 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
     else
         fprintf(stderr, KYEL "NOT CONNECTED YET\n" RESET);
     unlock_spead_api_module_shared(s);
+    }
 
     return 0;
 }

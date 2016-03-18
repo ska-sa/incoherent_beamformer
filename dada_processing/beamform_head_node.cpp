@@ -201,10 +201,10 @@ void bf_align_write (int16_t * beam, int16_t * align, uint64_t num_vals, int64_t
     //if (out_file_spead != 0)
     //    out_file_spead  = open(filename, O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
     pwrite(out_file_spead, beam, num_vals * 2, spead_loc);
-    //fprintf(stderr, "spead_loc = %d, filename = %s", spead_loc, filename);
+    fprintf(stderr, " align_size = %llu, pos + num_vals = %lld\n", align_size, pos+num_vals);
     spead_loc += num_vals;
     if (pos + num_vals < align_size){
-        //fprintf(stderr, "bf_align_1\n");
+        fprintf(stderr, "bf_align_1\n");
         beamform (align + pos, beam , align + pos, num_vals);
     }
     else{
@@ -264,7 +264,7 @@ void capture_spead(void* threadarg)
     fprintf (stderr, KYEL "ATTACHED\n" RESET);
 
     std::vector<spead2::recv::item> items1;
-    //fprintf(stderr, "{%d} before recieve item\n", tid);
+    fprintf(stderr, "{%d} before recieve item\n", tid);
     spead2::recv::heap fh1 = stream1.pop();
     //fprintf(stderr, "{%d} before get item\n", tid);
     // show_heap(fh1);
@@ -288,7 +288,7 @@ void capture_spead(void* threadarg)
         //    tsync = ts2;
         //    master_id = tid;
         //    pthread_mutex_unlock(&tsync_mutex);
-        //   pthread_mutex_unlock(&master_id_mutex);
+        //    pthread_mutex_unlock(&master_id_mutex);
         //    fprintf(stderr, "[%d] new tsync = %llu\n", tid, tsync);
         //}
         fh1 = stream1.pop();
@@ -339,15 +339,16 @@ void capture_spead(void* threadarg)
 
             int64_t diff = ts - ts2;
 
-            // fprintf (stderr, "[%d] ts = %llu\n", tid, ts);
-            // fprintf (stderr, "[%d] ts2 = %llu\n", tid, ts2);
-            // fprintf (stderr, "[%d] diff = %lld\n", tid, diff);
-
-            if (diff > 0 || master_id == tid){
+            //fprintf (stderr, "[%llu] ts = %llu\n", tid, ts);
+            //fprintf (stderr, "[%llu] ts2 = %llu\n", tid, ts2);
+            //fprintf (stderr, "[%d] diff = %lld\n", tid, diff);
+            //fprintf (stderr, "[%lld] tsdiff2 = %lld\n", tid, tsdiff2);
+            //fprintf (stderr, "[%llu] num_vals = %lld\n", tid, num_vals);
+            if (diff > 0){
                 pos2 = ((tsdiff2) * num_vals / 536870912) % (out_buffer_size/2);
-                fprintf (stderr, KRED "[%d] pos = %llu\n" RESET ,tid, pos2);
-                int16_t * data = (int16_t *) items1[data_id].ptr;
-                bf_align_write (data, order_buffer, num_vals, pos2, out_buffer_size/2);
+                fprintf (stderr, KRED "[%d] pos = %llu, ts ACCUMULATE = %llu\n" RESET ,tid, pos2, ts/536870912 % (ACCUMULATE));
+                //int16_t * data = (int16_t *) items1[data_id].ptr;
+                bf_align_write ((int16_t *) items1[data_id].ptr, order_buffer, num_vals, pos2, out_buffer_size/2);
                 fh1 = stream1.pop();
                 items1 = fh1.get_items();
                 for (int j = 0; j < 4; j++){
@@ -365,14 +366,16 @@ void capture_spead(void* threadarg)
             else
                 sleep(1);
 
-            if (diff > 0 || ts == 0){
-                //fprintf (stderr, KYEL "[%d] second\n" RESET, tid, (diff)/536870912);
+            //if (diff > 0 || ts == 0){
+                //fprintf (stderr, KYEL "[%d] second\n" RESET, tid);
                 pos2 = ((tsdiff2) * num_vals / 536870912) % (out_buffer_size/2);
+                fprintf (stderr, KRED "[%d] pos = %llu, ts ACCUMULATE = %llu\n" RESET ,tid, pos2, ts/536870912 % (ACCUMULATE));
                 //fprintf (stderr, KRED "[%d] pos = %llu\n" RESET ,tid, pos2);
-                int16_t  data = (int16_t *) items1[data_id].ptr;
-                bf_align_write (data, order_buffer, num_vals, pos2, out_buffer_size/2);
+                //fflush(stderr);
+                //int16_t  data = (int16_t *) items1[data_id].ptr;
+                bf_align_write ((int16_t *) items1[data_id].ptr, order_buffer, num_vals, pos2, out_buffer_size/2);
                 //bf_align ((int16_t *) items1[data_id].ptr, order_buffer, num_vals, pos2, out_buffer_size/2);
-                // sync[1][pos2/67108864/sizeof(uint16_t)] = 1;
+                //sync[1][pos2/67108864/sizeof(uint16_t)] = 1;
                 fh1 = stream1.pop();
                 items1 = fh1.get_items();
                 for (int j = 0; j < 4; j++){
@@ -382,11 +385,11 @@ void capture_spead(void* threadarg)
                   else if (items1[j].id == 8193)
                     data_id = j;
                 }
-                // prev2 = ts2;
+                 //prev2 = ts2;
                 ts2 = *((unsigned long long *)items1[timestamp_id].ptr);
                 tsdiff2 = ts2 - first_ts;
 
-            }
+            //}
             // else{
             //     if ((diff)/536870912 < -1)
             //         fprintf(stderr, "[%d] - ts = %llu, ts2 = %llu\n", tid, ts, ts2);
@@ -682,7 +685,7 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu, int sync_time)
     thread_data_array[2].acc_len = acc_len;
 
     //pthread_create(&threads[0], NULL, capture_spead, &thread_data_array[0]);
-    pthread_create(&threads[1], NULL, capture_spead, &thread_data_array[1]);
+    //pthread_create(&threads[1], NULL, capture_spead, &thread_data_array[1]);
     //pthread_create(&threads[2], NULL, capture_spead, &thread_data_array[2]);
 
     int64_t tsdiff2;
@@ -708,7 +711,7 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu, int sync_time)
     }
 
     snprintf(filename,255,"%s/%llu.dat",FILE_LOC, first_ts);
-    
+    //fprintf(stderr, "ts2 = %llu, ts = %llu", ts2, ts);    
     uint64_t spead_loc = 0;
     out_file = open(filename, O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
     snprintf(filename,255,"%s/%llu.dat.spead",FILE_LOC, first_ts);
@@ -725,12 +728,15 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu, int sync_time)
 
         //fprintf (stderr, KGRN "GRABBED\n" RESET);
         int64_t diff = ts - ts2;
+        fprintf(stderr, "ts2 = %llu, ts = %llu", ts2, ts);
+        //fprintf (stderr, KRED "[%d] pos = %llu, ts2 %% ACCUMULATE = %llu\n" RESET ,3, pos2, ts2 % (ACCUMULATE*536870912));
         //accumulated = (int16_t *)malloc(sizeof(int16_t) * 67108864);
         //fprintf(stderr, KYEL "timestamp = %llu\n" RESET, ts2);
         if (diff > 0 || master_id == 3){
-            //fprintf(stderr, "diff = %lld\n", diff);
+            fprintf(stderr, "diff = %lld\n", diff);
             
             int64_t pos1 = ((tsdiff2) * acc_len / 536870912) % (out_buffer_size/2);
+            fprintf (stderr, KRED "[%d] pos = %llu, ts2  ACCUMULATE = %llu\n" RESET ,3, pos1, ts2/536870912 % (ACCUMULATE));
             //fprintf (stderr, KRED "[%d] pos = %llu\n" RESET ,3, pos1);
             //pwrite(out_file_spead, hdu->data_block->curbuf, hdu->data_block->curbufsz, spead_loc);
             spead_loc += hdu->data_block->curbufsz;
@@ -758,6 +764,7 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu, int sync_time)
 
             //accumulated = (int16_t *)malloc(sizeof(int16_t) * acc_len);
             int64_t pos1 = ((tsdiff2) * acc_len / 536870912) % (out_buffer_size/2);
+            fprintf (stderr, KRED "[%d] pos = %llu, ts2  ACCUMULATE = %llu\n" RESET ,3, pos1, ts2/536870912 % (ACCUMULATE));
             //pwrite(out_file_spead, hdu->data_block->curbuf, hdu->data_block->curbufsz, spead_loc);
             spead_loc += hdu->data_block->curbufsz;
             //fprintf (stderr, KRED "[%d] pos = %llu\n" RESET ,3, pos1);
