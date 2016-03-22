@@ -59,6 +59,7 @@
 #define NUM_HEAPS_PER_ORDER_BUF 8
 #define MAX_TS 1099511627776
 
+#define ACCUMULATE 256
 #define TIMESTAMPS_PER_HEAP 1
 #define TIMESTAMP_INCREMENT 512
 #define CHANS_PER_HEAP 1024
@@ -276,6 +277,8 @@ struct snap_shot
     int buffer_connected;
     int first_thread;
     key_t dada_key;   //Dada key (NOT NECESSARY?)
+
+    int synced;                 //help start on an accumulation edge, makes it easier to sync in head node
 
     char* order_buffer;             //Order buffer (Not necessary, make local copy, only keep keys here)
     int ob_id;                      //SHMEM key for order buffer
@@ -873,7 +876,7 @@ void to_dada_buffer ()  //Should only be called by master thread
     // num_bytes_transferred += obSegment;
 }
 
-
+int synced = 0;
 
 
 int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_group *ig, void *data)
@@ -883,6 +886,7 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
     struct spead_api_item *itm;
     unsigned long long ts;
     long long offset;
+    //int synced = 0;
 
     ss = get_data_spead_api_module_shared(s); //Get shared data module
     itm = NULL;
@@ -895,6 +899,16 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
     }
     // TS is 5 byte unsigned 
     ts = (long long)itm->i_data[0] + (long long)itm->i_data[1] * 256 + (long long)itm->i_data[2] * 256 * 256 + (long long)itm->i_data[3] * 256 * 256 * 256 + (long long)itm->i_data[4] * 256 * 256 * 256 * 256;
+
+
+    if (synced == 1 || ss->synced == 1 || ts/timestampIncrement%(ACCUMULATE)==0){
+    synced = 1;
+    if (ss->synced == 0){
+        lock_spead_api_module_shared(s);
+        ss->synced = 1;
+        set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
+        unlock_spead_api_module_shared(s);
+    }
     itm = get_spead_item_with_id(ig, dataSpeadId);
 
     if (itm == NULL){
@@ -915,6 +929,15 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
         //Shared resources empty, unlock and return
         return -1;
     }
+
+    //if (synced == 1 || ss->synced == 1 || ts/timestampIncrement%(ACCUMULATE)==0){
+    //synced = 1;
+    //if (ss->synced == 0){
+    //    lock_spead_api_module_shared(s);
+    //    ss->synced = 1;
+    //    set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
+    //    unlock_spead_api_module_shared(s);
+    //}
 
     lock_spead_api_module_shared(s);
 
@@ -992,6 +1015,10 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
     else
         fprintf(stderr, KYEL "NOT CONNECTED YET\n" RESET);
     unlock_spead_api_module_shared(s);
+    }
+    else{
+        fprintf(stderr, "tsmod = %llu, synced = %d, ss->synced = %d\n",ts/timestampIncrement%(ACCUMULATE), synced,ss->synced);
+    }
 
     return 0;
 }
