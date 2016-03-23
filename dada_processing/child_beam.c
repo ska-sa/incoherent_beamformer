@@ -205,11 +205,13 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port, char* ip)
             fprintf(stderr, KGRN "ts diff of %llu\n" RESET, ts2 - ts1);
 
             if (ts1 > ts2){
+                fprintf(stderr, "ts off from acc = %llu", ts1%(ACCUMULATE*TIMESTAMP_INCREMENT));
                 buffer_allignment = (ts1-ts2)/TIMESTAMP_INCREMENT*heap_size;
                 alligned = &hdu2;
                 missalligned = &hdu1;
             }
             else{
+                fprintf(stderr, "ts off from acc = %llu", ts1%(ACCUMULATE*TIMESTAMP_INCREMENT));
                 buffer_allignment = (ts2-ts1)/TIMESTAMP_INCREMENT*heap_size;
                 alligned = &hdu1;
                 missalligned = &hdu2;
