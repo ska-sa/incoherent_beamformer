@@ -893,22 +893,22 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
     itm = get_spead_item_with_id(ig, timestampSpeadId);
 
     if (itm == NULL){
-        fprintf(stderr, "timestampSpeadId = %d", timestampSpeadId);
-     fprintf(stderr, "%s: No timestamp data found (id: 0x%x)\n", __func__, TIMESTAMP_SPEAD_ID);
+      fprintf(stderr, "timestampSpeadId = %d", timestampSpeadId);
+      fprintf(stderr, "%s: No timestamp data found (id: 0x%x)\n", __func__, TIMESTAMP_SPEAD_ID);
     return -1;
     }
     // TS is 5 byte unsigned 
     ts = (long long)itm->i_data[0] + (long long)itm->i_data[1] * 256 + (long long)itm->i_data[2] * 256 * 256 + (long long)itm->i_data[3] * 256 * 256 * 256 + (long long)itm->i_data[4] * 256 * 256 * 256 * 256;
 
 
-    if (synced == 1 || ss->synced == 1 || ts/timestampIncrement%(ACCUMULATE)==0){
-    synced = 1;
-    if (ss->synced == 0){
-        lock_spead_api_module_shared(s);
-        ss->synced = 1;
-        set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
-        unlock_spead_api_module_shared(s);
-    }
+    //if (synced == 1 || ss->synced == 1 || ts/timestampIncrement%(ACCUMULATE)==0){
+    //synced = 1;
+    //if (ss->synced == 0){
+    //    lock_spead_api_module_shared(s);
+    //    ss->synced = 1;
+    //    set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
+    //    unlock_spead_api_module_shared(s);
+    //}
     itm = get_spead_item_with_id(ig, dataSpeadId);
 
     if (itm == NULL){
@@ -942,13 +942,24 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
     lock_spead_api_module_shared(s);
 
     if (ss->first_thread == 0) { //First thread to run
-
+        if (synced == 1 || ss->synced == 1 || ts/timestampIncrement%(ACCUMULATE)==0){
+            synced = 1;
+            if (ss->synced == 0){
+                // lock_spead_api_module_shared(s);
+                ss->synced = 1;
+                // set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
+                // unlock_spead_api_module_shared(s);
+            }
+        else{
+            fprintf(stderr, "tsmod = %llu, synced = %d, ss->synced = %d\n",ts/timestampIncrement%(ACCUMULATE), synced,ss->synced);
+        }
         start = clock(), diff;
         ss->first_thread = 1;
         ss->master_pid = getpid();
         fprintf(stderr, KGRN "MASTER thread is %d\n" RESET, getpid());
         ss->prior_ts = ts;
         ss->buffer_connected = 1;
+        }
     }
 
     ss->numHeaps+=1;
@@ -1015,10 +1026,10 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
     else
         fprintf(stderr, KYEL "NOT CONNECTED YET\n" RESET);
     unlock_spead_api_module_shared(s);
-    }
-    else{
-        fprintf(stderr, "tsmod = %llu, synced = %d, ss->synced = %d\n",ts/timestampIncrement%(ACCUMULATE), synced,ss->synced);
-    }
+    //}
+    //else{
+    //    fprintf(stderr, "tsmod = %llu, synced = %d, ss->synced = %d\n",ts/timestampIncrement%(ACCUMULATE), synced,ss->synced);
+    //}
 
     return 0;
 }
