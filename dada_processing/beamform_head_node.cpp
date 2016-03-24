@@ -344,7 +344,7 @@ void capture_spead(void* threadarg)
             //fprintf (stderr, "[%d] diff = %lld\n", tid, diff);
             //fprintf (stderr, "[%lld] tsdiff2 = %lld\n", tid, tsdiff2);
             //fprintf (stderr, "[%llu] num_vals = %lld\n", tid, num_vals);
-            if (diff > 0){
+            if (diff > 0 || master_id == tid){
                 pos2 = ((tsdiff2) * num_vals / 536870912) % (out_buffer_size/2);
                 //fprintf (stderr, KRED "[%d] pos = %llu, ts ACCUMULATE = %llu\n" RESET ,tid, pos2, ts/536870912 % (ACCUMULATE));
                 //int16_t * data = (int16_t *) items1[data_id].ptr;
@@ -366,7 +366,7 @@ void capture_spead(void* threadarg)
             else
                 sleep(1);
 
-            //if (diff > 0 || ts == 0){
+            if (diff > 0 || ts == 0){
                 //fprintf (stderr, KYEL "[%d] second\n" RESET, tid);
                 pos2 = ((tsdiff2) * num_vals / 536870912) % (out_buffer_size/2);
                 //fprintf (stderr, KRED "[%d] pos = %llu, ts ACCUMULATE = %llu\n" RESET ,tid, pos2, ts/536870912 % (ACCUMULATE));
@@ -389,7 +389,7 @@ void capture_spead(void* threadarg)
                 ts2 = *((unsigned long long *)items1[timestamp_id].ptr);
                 tsdiff2 = ts2 - first_ts;
 
-            //}
+            }
             // else{
             //     if ((diff)/536870912 < -1)
             //         fprintf(stderr, "[%d] - ts = %llu, ts2 = %llu\n", tid, ts, ts2);
@@ -431,8 +431,8 @@ struct udp_thread_data{
 //int send_udp (int16_t * in_data, uint64_t size){
 int packet_count = 0;
 int send_udp (void* threadarg){
-   //fprintf(stderr,KRED "sending %d\n" RESET, packet_count); 
-
+   fprintf(stderr,KRED "sending %d\n" RESET, packet_count); 
+    int count_send = 0;
     struct udp_thread_data *my_data;
     my_data = (struct udp_thread_data *) threadarg;
 
@@ -543,20 +543,24 @@ int send_udp (void* threadarg){
     //while (1)
     {
         //Send the packet
-        if (sendto (s, datagram, iph->tot_len ,  0, (struct sockaddr *) &sin, sizeof (sin)) < 0)
+        int bytes_sent;
+        //if (sendto (s, datagram, iph->tot_len ,  0, (struct sockaddr *) &sin, sizeof (sin)) < 0)
+        bytes_sent = sendto (s, datagram, iph->tot_len ,  0, (struct sockaddr *) &sin, sizeof (sin));
+        if (bytes_sent < 0)
         {
             fprintf(stderr, "sendto failed\n");
-            perror("sendto failed");
+            //perror("sendto failed");
         }
         //Data send successfully
         else
         {
-            
-            usleep(25);
+            count_send++;
+            usleep(100);
+            //fprintf (stderr, "%llu %u, %d bytes\n",current_time, int_count, bytes_sent);
             //fprintf (stderr, "Packet Send. Length : %d \n" , iph->tot_len);
         }
     }
-
+    //fprintf (stderr, "%llu %u\n",current_time, int_count);
     int_count=int_count+ACCUMULATE;
     if (int_count > int_per_sec){
         current_time++;
@@ -570,14 +574,14 @@ int send_udp (void* threadarg){
     }
     //fprintf (stderr, "\nint_count = %llu\n",int_count);
 //    free(pseudogram);i
-    memset(in_data, 0, size);
+    //memset(in_data, 0, size);
     int t = 1;
     setsockopt(s,SOL_SOCKET,SO_REUSEADDR,&t,sizeof(int));
     close(s);
     shutdown(s,2);
     //fprintf(stderr,"exit sending\n");
-    //fprintf(stderr,KRED "sent %d\n" RESET, packet_count);
-    //packet_count++;
+    fprintf(stderr,KRED "sent %d; %d packets\n" RESET, packet_count, count_send);
+    packet_count++;
     return 0;
 }
 
@@ -812,7 +816,7 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu, int sync_time)
             fprintf(stderr, "wrapped = 0, time_wraps = %u, ts = %llu, first_ts = %llu\n",time_wraps, ts, first_ts);
         }
 
-        if (tsdiff2 / 2 * acc_len / 536870912 - read_head > num_vals)
+        if (tsdiff2/2 * acc_len / 536870912 - read_head > num_vals)
         {
             //int seconds = (int)((float)ts/12207.03125);
             uint64_t seconds = time_wraps * 1099511627776 + ts * 0.000000005;
