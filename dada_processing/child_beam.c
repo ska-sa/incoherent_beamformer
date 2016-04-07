@@ -79,7 +79,7 @@ void spead_out(int16_t * beamformed, unsigned long long ts, uint64_t num_vals, s
 {
     fprintf (stderr, KRED "YOHO\n" RESET);
     //SPEAD STREAM SET UP
-
+    //uint64_t location = 0;
     fprintf (stderr, KGRN "HEY\n" RESET);
 
     spead2::flavour f(spead2::maximum_version, 64, 48, spead2::BUG_COMPAT_PYSPEAD_0_5_2);
@@ -188,7 +188,8 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port, char* ip)
 
     fprintf (stderr, KGRN "Cleared all buffers\n" RESET);
     int init = 0;
-    
+    int out_file = 0;
+    uint64_t location = 0;
     // fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", hdu1->data_block->curbufsz);
     while(1){
 
@@ -291,6 +292,14 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port, char* ip)
         ts1 = get_timestamp((*alligned));
         ts2 = get_timestamp((*missalligned));
 
+        double seconds = ts1 * 0.000000005;
+    //int out_file = 0;
+    char filename[255];
+    snprintf(filename,255,"/home/kat/data/%.17g.dat", seconds);
+    if (out_file == 0){
+        out_file  = open(filename, O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+    }
+
         ssize_t size =  ipcio_close_block_read((*alligned)->data_block, (*alligned)->data_block->curbufsz);
         dada_hdu_unlock_read((*alligned));
 
@@ -332,11 +341,15 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port, char* ip)
         h.add_descriptor(desc2);
         if (buff_count == 0){
             h.add_item(0x2001, beam1, sizeof(int16_t) * num_out_vals, true);
+            pwrite(out_file, beam1, sizeof(int16_t) * num_out_vals, location);
+            location += sizeof(int16_t) * num_out_vals;
             // free(beam2);
         }
         else
         {
             h.add_item(0x2001, beam2, sizeof(int16_t) * num_out_vals, true);
+            pwrite(out_file, beam2, sizeof(int16_t) * num_out_vals, location);
+            location += sizeof(int16_t) * num_out_vals;
             // free(beam1);
         }
 

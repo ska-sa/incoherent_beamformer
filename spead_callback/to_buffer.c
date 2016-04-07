@@ -258,6 +258,8 @@ int sig, n1 = 1;
 int ob_id;                      //SHMEM key for order buffer
 int dpb_id; 
 
+int out_file;
+
 struct snap_shot
 {
     //from simple writer
@@ -621,6 +623,16 @@ int dadaThread(struct spead_api_module_shared *s)
         
 
         if (sig == SIGUSR1){
+            if (out_file == 0){
+            double seconds = ss->prior_ts * 0.000000005;
+            //int out_file = 0;
+            char filename[255];
+            snprintf(filename,255,"/home/kat/data/%.17g.spead%dat", seconds, dadaBufId);
+            
+                fprintf(stderr, KGRN "MAKING FILE" RESET);
+                out_file  = open(filename, O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+            }
+
             to_dada_buffer();
             // count++;
             // fprintf(stderr, KYEL "TO_DADA\n" RESET);
@@ -849,7 +861,8 @@ void hexdump(unsigned char *buffer, unsigned long long index, unsigned long long
 }
 
 
-
+uint64_t file_loc = 0;
+//int out_file = 0;
 void to_dada_buffer ()  //Should only be called by master thread
 {  
     if (buffer == NULL)
@@ -862,6 +875,10 @@ void to_dada_buffer ()  //Should only be called by master thread
     int o_b_off = order_buffer_tail %  obSize;
     memcpy(buffer + order_buffer_tail, order_buffer + o_b_off, obSegment);
     order_buffer_tail = (order_buffer_tail + obSegment) % dadaBufSize;
+    //file_loc = file_loc + obSegment;
+    //fprintf (stderr, "file = %llu\n", out_file);
+    pwrite (out_file,order_buffer+o_b_off, obSegment, file_loc);
+    file_loc += obSegment;
     memset(order_buffer + o_b_off, 0, obSegment);
 
     // if (dropped_packet_buffer[o_b_off / expectedHeapLen / numBitsInSegment] != noDroppedPackets){
@@ -945,6 +962,7 @@ int spead_api_callback(struct spead_api_module_shared *s, struct spead_item_grou
         if (synced == 1 || ss->synced == 1 || ts/timestampIncrement%(ACCUMULATE)==0){
             synced = 1;
             if (ss->synced == 0){
+
                 // lock_spead_api_module_shared(s);
                 ss->synced = 1;
                 // set_data_spead_api_module_shared(s, ss, sizeof(struct snap_shot));
