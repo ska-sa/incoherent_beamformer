@@ -148,8 +148,8 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port, char* ip)
          fprintf(stderr, KRED "hdu2 CONNECT FAILED\n" RESET);
          // return EXIT_FAILURE;
     }
-    initial_header(hdu1);
-    initial_header(hdu2);
+    // initial_header(hdu1);
+    // initial_header(hdu2);
     
     if (ipcio_is_open (hdu1->data_block)){
         fprintf (stderr, KGRN "OPEN\n" RESET);
