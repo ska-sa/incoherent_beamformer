@@ -41,7 +41,7 @@
 #define DADA_BUF_1 0x1234
 #define DADA_BUF_2 0x2345
 
-#define ACCUMULATE 256
+#define ACCUMULATE 64
 #define N_CHANS 1024
 #define N_POLS 2
 #define TIMESTAMPS_PER_HEAP 4
@@ -195,7 +195,7 @@ void bf_align (int16_t * beam, int16_t * align, uint64_t num_vals, int64_t pos, 
 
 void bf_align_write (int16_t * beam, int16_t * align, uint64_t num_vals, int64_t pos, uint64_t align_size){
     //uint64_t beam_size = num_vals * sizeof(uint16_t);
-    //fprintf (stderr, KRED "pos = %llu\n" RESET , pos);
+    fprintf (stderr, KRED "align pos = %llu\n" RESET , pos);
     //char filename[255];
     //snprintf(filename,255,"%s/spead_in.dat",FILE_LOC);
     //if (out_file_spead != 0)
@@ -348,7 +348,7 @@ void capture_spead(void* threadarg)
                 pos2 = ((tsdiff2) * num_vals / 536870912) % (out_buffer_size/2);
                 //fprintf (stderr, KRED "[%d] pos = %llu, ts ACCUMULATE = %llu\n" RESET ,tid, pos2, ts/536870912 % (ACCUMULATE));
                 //int16_t * data = (int16_t *) items1[data_id].ptr;
-                bf_align_write ((int16_t *) items1[data_id].ptr, order_buffer, num_vals, pos2/2, out_buffer_size/2);
+                bf_align_write ((int16_t *) items1[data_id].ptr, order_buffer, num_vals, pos2, out_buffer_size/2);
                 fh1 = stream1.pop();
                 items1 = fh1.get_items();
                 for (int j = 0; j < 4; j++){
@@ -373,7 +373,7 @@ void capture_spead(void* threadarg)
                 //fprintf (stderr, KRED "[%d] pos = %llu\n" RESET ,tid, pos2);
                 //fflush(stderr);
                 //int16_t  data = (int16_t *) items1[data_id].ptr;
-                bf_align_write ((int16_t *) items1[data_id].ptr, order_buffer, num_vals, pos2/2, out_buffer_size/2);
+                bf_align_write ((int16_t *) items1[data_id].ptr, order_buffer, num_vals, pos2, out_buffer_size/2);
                 //bf_align ((int16_t *) items1[data_id].ptr, order_buffer, num_vals, pos2, out_buffer_size/2);
                 //sync[1][pos2/67108864/sizeof(uint16_t)] = 1;
                 fh1 = stream1.pop();
@@ -555,7 +555,7 @@ int send_udp (void* threadarg){
         else
         {
             count_send++;
-            usleep(100);
+            //usleep(100);
             //fprintf (stderr, "%llu %u, %d bytes\n",current_time, int_count, bytes_sent);
             //fprintf (stderr, "Packet Send. Length : %d \n" , iph->tot_len);
         }
@@ -717,13 +717,13 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu, int sync_time)
         buffer = ipcio_open_block_read(hdu->data_block, &(hdu->data_block->curbufsz), &blockid);
     }
 
-    snprintf(filename,255,"%s/%llu.dat",FILE_LOC, first_ts);
+    //snprintf(filename,255,"%s/%llu.dat",FILE_LOC, first_ts);
     //fprintf(stderr, "ts2 = %llu, ts = %llu", ts2, ts);    
     uint64_t spead_loc = 0;
-    out_file = open(filename, O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
-    snprintf(filename,255,"%s/%llu.dat.spead",FILE_LOC, first_ts);
+    //out_file = open(filename, O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+    //snprintf(filename,255,"%s/%llu.dat.spead",FILE_LOC, first_ts);
     //out_file_spead = open (filename, O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
-    fprintf (stderr, "opened file %s", filename);
+    //fprintf (stderr, "opened file %s", filename);
 
 
     while (true)
@@ -815,6 +815,14 @@ void run (int port1, int port2, int port3, dada_hdu_t * hdu, int sync_time)
             wrapped = 0;
             fprintf(stderr, "wrapped = 0, time_wraps = %u, ts = %llu, first_ts = %llu\n",time_wraps, ts, first_ts);
         }
+
+        if (out_file == 0){
+            double seconds = ts * 0.000000005;
+            //fprintf (stderr, "\nts = %llu, ts/12207.03125 = %llu\n",ts, seconds);
+            double time = sync_time + seconds;
+            snprintf(filename,255,"%s/%.17g.dat",FILE_LOC, time);
+            out_file = open(filename, O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+	}
 
         if (tsdiff2/2 * acc_len / 536870912 - read_head > num_vals)
         {

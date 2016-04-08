@@ -48,7 +48,7 @@
 
 #define NUM_WORKERS 4
 
-#define ACCUMULATE 256
+#define ACCUMULATE 64
 #define F_ID_SPEAD_ID 4096
 #define TIMESTAMP_SPEAD_ID 4097
 #define DATA_SPEAD_ID 4098
@@ -550,8 +550,15 @@ void set_timestamp_header(dada_hdu_t * hdu, unsigned long long ts){
   ipcbuf_mark_filled (hdu->header_block, header_size);
 }
 
+int out_file = 0;
+uint64_t file_tail = 0;
+
 int dadaThread(struct spead_api_module_shared *s)
 {
+    //int out_file = 0;
+    char filename[255];
+    snprintf(filename,255,"/home/kat/data/%x.dat",DADA_BUF_ID) ;
+    out_file = open(filename, O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
     count = 0;
     int sig;
 
@@ -858,6 +865,8 @@ void to_dada_buffer ()  //Should only be called by master thread
 
     int o_b_off = order_buffer_tail %  obSize;
     memcpy(buffer + order_buffer_tail, order_buffer + o_b_off, obSegment);
+    //pwrite(out_file, order_buffer + o_b_off, obSegment, file_tail); 
+    //file_tail = file_tail + obSegment;
     order_buffer_tail = (order_buffer_tail + obSegment) % dadaBufSize;
     memset(order_buffer + o_b_off, 0, obSegment);
 
