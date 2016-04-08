@@ -1,3 +1,19 @@
+/* Copyright 2015 SKA South Africa
+ *
+ * This program is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Lesser General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 /**
  * @file
  */
@@ -7,9 +23,10 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 #include <memory>
-#include <unordered_set>
+#include <map>
 #include <functional>
 #include "common_defines.h"
 #include "common_memory_pool.h"
@@ -17,6 +34,9 @@
 
 namespace spead2
 {
+
+namespace unittest { namespace recv { namespace live_heap { struct payload_ranges; }}}
+
 namespace recv
 {
 
@@ -43,6 +63,7 @@ class live_heap
 {
 private:
     friend class heap;
+    friend struct ::spead2::unittest::recv::live_heap::payload_ranges;
 
     /// Heap ID encoded in packets
     s_item_pointer_t cnt;
@@ -50,8 +71,6 @@ private:
     s_item_pointer_t heap_length = -1;
     /// Number of bytes of payload received
     s_item_pointer_t received_length = 0;
-    /// True if a stream control packeting indicating end-of-heap was found
-    bool end_of_stream = false;
     /**
      * Minimum possible payload size, determined from the payload range in
      * packets and item pointers, or equal to @ref heap_length if that is
@@ -62,6 +81,10 @@ private:
     int heap_address_bits = -1;
     /// Protocol bugs to accept
     bug_compat_mask bug_compat;
+    /// True if a stream control packet indicating end-of-heap was found
+    bool end_of_stream = false;
+    /// Function to use for copying payload
+    memcpy_function memcpy = std::memcpy;
     /**
      * Heap payload. When the length is unknown, this is grown by successive
      * doubling. While @c std::vector would take care of that for us, it also
@@ -76,16 +99,13 @@ private:
      */
     std::vector<item_pointer_t> pointers;
     /**
-     * Set of payload offsets found in packets. This is used only to
-     * detect duplicate packets.
-     *
-     * @todo investigate more efficient structures here, e.g.
-     * - a bitfield (one bit per payload byte)
-     * - using a Bloom filter first (almost all queries should miss)
-     * - using a linked list per offset>>13 (which is maybe equivalent to
-     *   just changing the hash function)
+     * Parts of the payload that have been seen. Each key indicates the start
+     * of a contiguous region of received data, and the value indicates the end
+     * of that contiguous region. Since packets are expected to arrive
+     * more-or-less in order (or more-or-less in order for each of a small
+     * number of streams) the map is not expected to grow large.
      */
-    std::unordered_set<s_item_pointer_t> packet_offsets;
+    std::map<s_item_pointer_t, s_item_pointer_t> payload_ranges;
 
     /// Backing memory pool
     std::shared_ptr<memory_pool> pool;
@@ -95,6 +115,12 @@ private:
      * @a exact is false, then a doubling heuristic will be used.
      */
     void payload_reserve(std::size_t size, bool exact);
+
+    /**
+     * Update @ref payload_ranges with a new range. Returns true if the new
+     * range was inserted, or false if it was discarded as a duplicate.
+     */
+    bool add_payload_range(s_item_pointer_t first, s_item_pointer_t last);
 
 public:
     /**
@@ -110,6 +136,9 @@ public:
      * @c new.
      */
     void set_memory_pool(std::shared_ptr<memory_pool> pool);
+
+    /// Set memcpy function to use for copying payload
+    void set_memcpy(memcpy_function memcpy);
 
     /**
      * Attempt to add a packet to the heap. The packet must have been
@@ -133,6 +162,10 @@ public:
     s_item_pointer_t get_cnt() const { return cnt; }
     /// Get protocol bug compatibility flags
     bug_compat_mask get_bug_compat() const { return bug_compat; }
+    /// Get amount of received payload
+    s_item_pointer_t get_received_length() const;
+    /// Get amount of payload expected, or -1 if not known
+    s_item_pointer_t get_heap_length() const;
 };
 
 } // namespace recv

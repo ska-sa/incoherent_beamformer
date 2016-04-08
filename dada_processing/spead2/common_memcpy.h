@@ -1,4 +1,4 @@
-/* Copyright 2015 SKA South Africa
+/* Copyright 2016 SKA South Africa
  *
  * This program is free software: you can redistribute it and/or modify it under
  * the terms of the GNU Lesser General Public License as published by the Free
@@ -14,37 +14,24 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#ifndef SPEAD2_COMMON_MEMCPY_H
+#define SPEAD2_COMMON_MEMCPY_H
+
+#include <cstddef>
+#include "common_features.h"
+
 /**
- * @file
+ * Variant of memcpy that uses a non-temporal hint for the destination.
+ * This is not necessarily any faster on its own (and may be slower), but it
+ * avoids polluting the cache.
+ *
+ * If compiler support is not available, this falls back to regular memcpy.
  */
-
-#include "recv_reader.h"
-#include "recv_stream.h"
-
 namespace spead2
 {
-namespace recv
-{
 
-void reader::stopped()
-{
-    stopped_promise.set_value();
-}
+void *memcpy_nontemporal(void * __restrict__ dest, const void * __restrict__ src, std::size_t n) noexcept;
 
-boost::asio::io_service &reader::get_io_service()
-{
-    return owner.get_strand().get_io_service();
-}
-
-stream_base &reader::get_stream_base() const
-{
-    return owner;
-}
-
-void reader::join()
-{
-    stopped_promise.get_future().get();
-}
-
-} // namespace recv
 } // namespace spead2
+
+#endif // SPEAD2_COMMON_MEMCPY_H

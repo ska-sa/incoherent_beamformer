@@ -83,7 +83,7 @@ void spead_out(int16_t * beamformed, unsigned long long ts, uint64_t num_vals, s
     fprintf (stderr, KGRN "HEY\n" RESET);
 
     spead2::flavour f(spead2::maximum_version, 64, 48, spead2::BUG_COMPAT_PYSPEAD_0_5_2);
-    spead2::send::heap h(0x2, f);
+    spead2::send::heap h(f);
     spead2::descriptor desc1;
     desc1.id = 0x1000;
     desc1.name = "ADC_COUNT";
@@ -314,7 +314,7 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port, char* ip)
         stream.flush();
 
         spead2::flavour f(spead2::maximum_version, 64, 48, spead2::BUG_COMPAT_PYSPEAD_0_5_2);
-        spead2::send::heap h(0x2, f);
+        spead2::send::heap h(f);
         spead2::descriptor desc1;
         desc1.id = 0x1000;
         desc1.name = "ADC_COUNT";
@@ -386,11 +386,11 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port, char* ip)
 
 void INThandler(int sig){
     fprintf(stderr, "Sending end of stream packet\n");
-    spead2::flavour f(spead2::maximum_version, 64, 48, spead2::BUG_COMPAT_PYSPEAD_0_5_2);
-    spead2::send::heap end(0x3, f);
-    end.add_end();
-    (*stream_p).async_send_heap(end, [] (const boost::system::error_code &ec, spead2::item_pointer_t bytes_transferred) {});
-    (*stream_p).flush();
+    // spead2::flavour f(spead2::maximum_version, 64, 48, spead2::BUG_COMPAT_PYSPEAD_0_5_2);
+    // spead2::send::heap end(0x3, f);
+    // end.add_end();
+    // (*stream_p).async_send_heap(end, [] (const boost::system::error_code &ec, spead2::item_pointer_t bytes_transferred) {});
+    // (*stream_p).flush();
     fprintf(stderr, "Exiting Cleanly\n");
     exit(0);
 }

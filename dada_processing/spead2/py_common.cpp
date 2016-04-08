@@ -1,6 +1,23 @@
+/* Copyright 2015 SKA South Africa
+ *
+ * This program is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Lesser General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 #define PY_ARRAY_UNIQUE_SYMBOL spead2_ARRAY_API
 #include <boost/python.hpp>
+#include <boost/system/system_error.hpp>
 #include <numpy/arrayobject.h>
 #include <memory>
 #include "py_common.h"
@@ -15,20 +32,6 @@ namespace py = boost::python;
 
 namespace spead2
 {
-
-int semaphore_gil::get()
-{
-    release_gil gil;
-    int result = semaphore::get();
-    if (result == -1)
-    {
-        // Allow SIGINT to abort the wait
-        gil.acquire();
-        if (PyErr_CheckSignals() == -1)
-            boost::python::throw_error_already_set();
-    }
-    return result;
-}
 
 class log_function_python
 {
@@ -71,6 +74,12 @@ static void translate_exception(const ringbuffer_empty &e)
 static void translate_exception_stop_iteration(const stop_iteration &e)
 {
     PyErr_SetString(PyExc_StopIteration, e.what());
+}
+
+static void translate_exception_boost_io_error(const boost_io_error &e)
+{
+    py::tuple args = py::make_tuple(e.code().value(), e.what());
+    PyErr_SetObject(PyExc_IOError, args.ptr());
 }
 
 static py::object descriptor_get_shape(const descriptor &d)
@@ -177,6 +186,44 @@ public:
     }
 };
 
+class bytestring_from_python
+{
+public:
+    bytestring_from_python()
+    {
+    }
+
+    static void *convertible(PyObject *obj_ptr)
+    {
+#if PY_MAJOR_VERSION >= 3
+        if (!PyBytes_Check(obj_ptr))
+            return 0;
+#else
+        if (!PyString_Check(obj_ptr))
+            return 0;
+#endif
+        return obj_ptr;
+    }
+
+    static void construct(
+        PyObject *obj_ptr, py::converter::rvalue_from_python_stage1_data *data)
+    {
+        char *value;
+        Py_ssize_t length;
+#if PY_MAJOR_VERSION >= 3
+        PyBytes_AsStringAndSize(obj_ptr, &value, &length);
+#else
+        PyString_AsStringAndSize(obj_ptr, &value, &length);
+#endif
+        if (PyErr_Occurred())
+            throw py::error_already_set();
+        void *storage = reinterpret_cast<py::converter::rvalue_from_python_storage<bytestring> *>(
+            data)->storage.bytes;
+        new (storage) bytestring(value, length);
+        data->convertible = storage;
+    }
+};
+
 static void register_module()
 {
     using namespace boost::python;
@@ -185,18 +232,50 @@ static void register_module()
     create_exception<ringbuffer_stopped>(ringbuffer_stopped_type, "spead2.Stopped", "Stopped");
     create_exception<ringbuffer_empty>(ringbuffer_empty_type, "spead2.Empty", "Empty");
     register_exception_translator<stop_iteration>(&translate_exception_stop_iteration);
+    register_exception_translator<boost_io_error>(&translate_exception_boost_io_error);
     to_python_converter<bytestring, bytestring_to_python>();
+    py::converter::registry::push_back(
+        &bytestring_from_python::convertible,
+        &bytestring_from_python::construct,
+        py::type_id<bytestring>());
 
-    py::setattr(scope(), "BUG_COMPAT_DESCRIPTOR_WIDTHS", int_to_object(BUG_COMPAT_DESCRIPTOR_WIDTHS));
-    py::setattr(scope(), "BUG_COMPAT_SHAPE_BIT_1", int_to_object(BUG_COMPAT_SHAPE_BIT_1));
-    py::setattr(scope(), "BUG_COMPAT_SWAP_ENDIAN", int_to_object(BUG_COMPAT_SWAP_ENDIAN));
-    py::setattr(scope(), "BUG_COMPAT_PYSPEAD_0_5_2", int_to_object(BUG_COMPAT_PYSPEAD_0_5_2));
+#define EXPORT_ENUM(x) (py::setattr(scope(), #x, int_to_object(long(x))))
+    EXPORT_ENUM(BUG_COMPAT_DESCRIPTOR_WIDTHS);
+    EXPORT_ENUM(BUG_COMPAT_SHAPE_BIT_1);
+    EXPORT_ENUM(BUG_COMPAT_SWAP_ENDIAN);
+    EXPORT_ENUM(BUG_COMPAT_PYSPEAD_0_5_2);
+
+    EXPORT_ENUM(NULL_ID);
+    EXPORT_ENUM(HEAP_CNT_ID);
+    EXPORT_ENUM(HEAP_LENGTH_ID);
+    EXPORT_ENUM(PAYLOAD_OFFSET_ID);
+    EXPORT_ENUM(PAYLOAD_LENGTH_ID);
+    EXPORT_ENUM(DESCRIPTOR_ID);
+    EXPORT_ENUM(STREAM_CTRL_ID);
+
+    EXPORT_ENUM(DESCRIPTOR_NAME_ID);
+    EXPORT_ENUM(DESCRIPTOR_DESCRIPTION_ID);
+    EXPORT_ENUM(DESCRIPTOR_SHAPE_ID);
+    EXPORT_ENUM(DESCRIPTOR_FORMAT_ID);
+    EXPORT_ENUM(DESCRIPTOR_ID_ID);
+    EXPORT_ENUM(DESCRIPTOR_DTYPE_ID);
+
+    EXPORT_ENUM(CTRL_STREAM_START);
+    EXPORT_ENUM(CTRL_DESCRIPTOR_REISSUE);
+    EXPORT_ENUM(CTRL_STREAM_STOP);
+    EXPORT_ENUM(CTRL_DESCRIPTOR_UPDATE);
+
+    EXPORT_ENUM(MEMCPY_STD);
+    EXPORT_ENUM(MEMCPY_NONTEMPORAL);
+#undef EXPORT_ENUM
 
     class_<flavour>("Flavour",
         init<int, int, int, bug_compat_mask>(
             (arg("version"), arg("item_pointer_bits"),
              arg("heap_address_bits"), arg("bug_compat")=0)))
         .def(init<>())
+        .def(self == self)
+        .def(self != self)
         .add_property("version", &flavour::get_version)
         .add_property("item_pointer_bits", &flavour::get_item_pointer_bits)
         .add_property("heap_address_bits", &flavour::get_heap_address_bits)
@@ -213,11 +292,12 @@ static void register_module()
 
     class_<descriptor>("RawDescriptor")
         .def_readwrite("id", &descriptor::id)
-        .def_readwrite("name", &descriptor::name)
-        .def_readwrite("description", &descriptor::description)
+        .add_property("name", make_bytestring_getter(&descriptor::name), make_bytestring_setter(&descriptor::name))
+        .add_property("description", make_bytestring_getter(&descriptor::description), make_bytestring_setter(&descriptor::description))
         .add_property("shape", &descriptor_get_shape, &descriptor_set_shape)
         .add_property("format", &descriptor_get_format, &descriptor_set_format)
-        .def_readwrite("numpy_header", &descriptor::numpy_header);
+        .add_property("numpy_header", make_bytestring_getter(&descriptor::numpy_header), make_bytestring_setter(&descriptor::numpy_header))
+    ;
 
     object logging_module = import("logging");
     object logger = logging_module.attr("getLogger")("spead2");

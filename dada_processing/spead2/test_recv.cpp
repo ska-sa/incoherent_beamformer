@@ -1,3 +1,19 @@
+/* Copyright 2015 SKA South Africa
+ *
+ * This program is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Lesser General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #include <iostream>
 #include <utility>
 #include <chrono>
@@ -93,7 +109,7 @@ void show_heap(const spead2::recv::heap &fheap)
 static void run_trivial()
 {
     spead2::thread_pool worker;
-    trivial_stream stream(worker);
+    trivial_stream stream(worker, spead2::BUG_COMPAT_PYSPEAD_0_5_2);
     boost::asio::ip::udp::endpoint endpoint(boost::asio::ip::address_v4::any(), 8888);
     stream.emplace_reader<spead2::recv::udp_reader>(
         endpoint, spead2::recv::udp_reader::default_max_size, 1024 * 1024);
@@ -104,7 +120,7 @@ static void run_ringbuffered()
 {
     spead2::thread_pool worker;
     std::shared_ptr<spead2::memory_pool> pool = std::make_shared<spead2::memory_pool>(16384, 26214400, 12, 8);
-    spead2::recv::ring_stream<spead2::ringbuffer_semaphore<spead2::recv::live_heap> > stream(worker, 7);
+    spead2::recv::ring_stream<> stream(worker, spead2::BUG_COMPAT_PYSPEAD_0_5_2);
     stream.set_memory_pool(pool);
     boost::asio::ip::udp::endpoint endpoint(boost::asio::ip::address_v4::any(), 8888);
     stream.emplace_reader<spead2::recv::udp_reader>(

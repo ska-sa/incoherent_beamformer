@@ -163,8 +163,11 @@ void show_heap(const spead2::recv::heap &fheap)
 
 void set_timestamp_header(dada_hdu_t * hdu, unsigned long long ts){
   // get the size of each header block
+  // fprintf(stderr, "in timestamp set\n");
   uint64_t header_size = ipcbuf_get_bufsz (hdu->header_block);
   char buffer[64];
+
+  // fprintf(stderr, "in timestamp set\n");
 
   // get a pointer to the header block
   char * header = ipcbuf_get_next_write (hdu->header_block);
@@ -228,8 +231,9 @@ void place_heap(spead2::recv::heap &heap)
         data = items[data_pos].ptr;
         pos = (ts - first_ts) / TIMESTAMP_INCREMENT * EXPECTED_HEAP_LEN;
         // memcpy (order_buffer + pos % order_buffer_size, data, EXPECTED_HEAP_LEN); //To order buffer
-        // if (pos - lastpos != 8192)
-        //     fprintf(stderr, KRED "diff = %" PRIu64 "\n Dropped %" PRIu64 "\n", pos - lastpos, (pos - lastpos) / 8192);
+        if (pos - lastpos != 8192)
+            fprintf(stderr, KRED "diff = %" PRIu64 "\n Dropped %" PRIu64 "\n", pos - lastpos, (pos - lastpos) / 8192);
+        // fprintf(stderr, "pos = %" PRIu64 "\n", pos);
 
         if (pos % dada_buffer_size == 0) {//New dada buffer required
             last_ts = ts; 
@@ -347,20 +351,26 @@ void run_callback(char* port){
 int consume (dada_hdu_t * hdu1, char* port)
 {
 
+    spead2::thread_pool worker;
+    std::shared_ptr<spead2::memory_pool> pool = std::make_shared<spead2::memory_pool>(16384, 26214400, 12, 8);
+    spead2::recv::ring_stream<> stream(worker, spead2::BUG_COMPAT_PYSPEAD_0_5_2);
+    stream.set_memory_pool(pool);
+    boost::asio::ip::udp::endpoint endpoint(boost::asio::ip::address_v4::any(), atoi(port));
+    stream.emplace_reader<spead2::recv::udp_reader>(
+        endpoint, spead2::recv::udp_reader::default_max_size, 8 * 1024 * 1024);
+
     fprintf(stderr, "ringbuffer\n");
     //Prepare Memory
-    unsigned char * order_buffer = (unsigned char*)malloc(order_buffer_size); 
-    unsigned char * data;
-    char * dada_buffer;
+    order_buffer = (unsigned char*)malloc(order_buffer_size);
 
     //Set up spead receiver
-    spead2::thread_pool worker;
+    // spead2::thread_pool worker;
 
-    spead2::recv::ring_stream<spead2::ringbuffer_semaphore<spead2::recv::live_heap> > stream(worker, 62);
-    boost::asio::ip::udp::endpoint endpoint1(boost::asio::ip::address_v4::any(), atoi(port));
+    // spead2::recv::ring_stream<spead2::ringbuffer_semaphore<spead2::recv::live_heap> > stream(worker, 62);
+    // boost::asio::ip::udp::endpoint endpoint1(boost::asio::ip::address_v4::any(), atoi(port));
 
-    stream.emplace_reader<spead2::recv::udp_reader>(
-        endpoint1, spead2::recv::udp_reader::default_max_size, 512 * 1024 * 1024);
+    // stream.emplace_reader<spead2::recv::udp_reader>(
+    //     endpoint1, spead2::recv::udp_reader::default_max_size, 512 * 1024 * 1024);
 
 
     int ts_pos = 1;
@@ -369,82 +379,54 @@ int consume (dada_hdu_t * hdu1, char* port)
     //Capture first spead heap
     std::vector<spead2::recv::item> items;
 
-    spead2::recv::heap fh = stream.pop();
+    spead2::recv::heap heap = stream.pop();
 
     //check heap
-    show_heap(fh);
-    
-    items = fh.get_items();
     
     
-    unsigned char* ts_buf = items[ts_pos].ptr;
-    // TS is 5 byte unsigned 
-    uint64_t ts = (uint64_t)ts_buf[0] + (uint64_t)ts_buf[1] * 256 + (uint64_t)ts_buf[2] * 256 * 256 + (uint64_t)ts_buf[3] * 256 * 256 * 256 + (uint64_t)ts_buf[4] * 256 * 256 * 256 * 256;
+    // items = fh.get_items();
+    
+    
+    // unsigned char* ts_buf = items[ts_pos].ptr;
+    // // TS is 5 byte unsigned 
+    // uint64_t ts = (uint64_t)ts_buf[0] + (uint64_t)ts_buf[1] * 256 + (uint64_t)ts_buf[2] * 256 * 256 + (uint64_t)ts_buf[3] * 256 * 256 * 256 + (uint64_t)ts_buf[4] * 256 * 256 * 256 * 256;
 
-    uint64_t first_ts;
-    uint64_t last_ts;
-    uint64_t pos;
-    uint64_t dada_head;
+    // uint64_t first_ts;
+    // uint64_t last_ts;
+    // uint64_t pos;
+    // uint64_t dada_head;
 
     //used to sync on a multiple of ACCUMULATION
-    int synced = 0;
+    // int synced = 0;
 
     //Capture Loop
     while(1){
-        if(synced == 0){  // Sync to ACCUMULATION
-            if (ts % ACCUMULATE == 0){
-                first_ts = ts;
-                last_ts = ts;
-                synced = 1;
-                set_timestamp_header(hdu, last_ts); //Set timestamp header
-                uint64_t block_id;
-                dada_buffer = ipcio_open_block_write (hdu->data_block, &block_id); //Open first buffer
-            }
-        }
-        else //Synced
-        {
-            data = items[data_pos].ptr;
-            pos = (ts - first_ts) / TIMESTAMP_INCREMENT * EXPECTED_HEAP_LEN;
-            memcpy (order_buffer + pos % order_buffer_size, data, EXPECTED_HEAP_LEN); //To order buffer
-
-            if (pos % dada_buffer_size == 0)
-                last_ts = ts;
-
-            if (pos - dada_head > order_buffer_segment){ // Order buffer filled, to dada
-
-                if (dada_head % dada_buffer_size == 0){ //New dada buffer required
-                    uint64_t block_id;
-                    ipcio_close_block_write (hdu->data_block, dada_buffer_size); 
-                    set_timestamp_header(hdu, last_ts); //Set timestamp header
-                    dada_buffer = ipcio_open_block_write (hdu->data_block, &block_id);
-                }
-
-                memcpy(dada_buffer + dada_head % dada_buffer_size, order_buffer + dada_head % order_buffer_size, order_buffer_segment);
-                memset(order_buffer + dada_head % order_buffer_size, 0, order_buffer_segment);
-                dada_head += order_buffer_segment;
-            }
-        }
-
-        spead2::recv::heap fh = stream.pop();
+        // spead2::recv::heap heap = spead2::recv::heap(std::move(lheap));
+        place_heap(heap);
+        // show_heap(heap);
+        heap = stream.pop();
 
         //check heap
-        show_heap(fh);
+        // show_heap(fh);
         
-        items = fh.get_items();
+        // items = fh.get_items();
         
-        unsigned char* ts_buf = items[ts_pos].ptr;
+        // unsigned char* ts_buf = items[ts_pos].ptr;
         // TS is 5 byte unsigned 
-        uint64_t ts = (uint64_t)ts_buf[0] + (uint64_t)ts_buf[1] * 256 + (uint64_t)ts_buf[2] * 256 * 256 + (uint64_t)ts_buf[3] * 256 * 256 * 256 + (uint64_t)ts_buf[4] * 256 * 256 * 256 * 256;
+        // uint64_t ts = (uint64_t)ts_buf[0] + (uint64_t)ts_buf[1] * 256 + (uint64_t)ts_buf[2] * 256 * 256 + (uint64_t)ts_buf[3] * 256 * 256 * 256 + (uint64_t)ts_buf[4] * 256 * 256 * 256 * 256;
     }
 }
 
 int main (int argc, char **argv)
 {
     // signal(SIGINT, INThandler);
-    dada_hdu_t * hdu1;
-    if (argv[1] == "rb"){
-        connect_to_buffer(&hdu1, DADA_BUF);
-        if (argc == 3)
+    // dada_hdu_t * hdu1;
+    if (argv[1][0] == 'r'){
+        // fprint
+        dada_id = (int)strtol(argv[3], NULL, 0);
+        connect_to_buffer(&hdu, dada_id);
+
+        if (argc == 4)
             consume(hdu, argv[2]);
     }
     else

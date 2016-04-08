@@ -1,3 +1,19 @@
+/* Copyright 2015 SKA South Africa
+ *
+ * This program is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Lesser General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 /**
  * @file
  *
@@ -9,6 +25,7 @@
 
 #include <functional>
 #include <boost/format.hpp>
+#include <boost/preprocessor/cat.hpp>
 #include "common_defines.h"
 
 namespace spead2
@@ -50,6 +67,12 @@ static inline void log_msg(log_level level, const std::string &msg)
         detail::log_msg_impl(level, msg);
 }
 
+static inline void log_msg(log_level level, const char *msg)
+{
+    if (level <= SPEAD2_MAX_LOG_LEVEL)
+        detail::log_msg_impl(level, msg);
+}
+
 /**
  * Log a message where the arguments are processed by @c boost::format.
  */
@@ -64,38 +87,26 @@ static inline void log_msg(log_level level, const char *format, T0&& arg0, Ts&&.
     }
 }
 
-static inline void log_debug(const std::string &msg)
-{
-    log_msg(log_level::debug, msg);
-}
+#define SPEAD2_DEFINE_LOG_LEVEL(name) \
+    static inline void BOOST_PP_CAT(log_, name)(const std::string &msg) \
+    {                                                                  \
+        log_msg(log_level::name, msg);                                 \
+    }                                                                  \
+    static inline void BOOST_PP_CAT(log_, name)(const char *msg)       \
+    {                                                                  \
+        log_msg(log_level::name, msg);                                 \
+    }                                                                  \
+    template<typename T0, typename... Ts>                              \
+    static inline void BOOST_PP_CAT(log_, name)(const char *format, T0 &&arg0, Ts&&... args) \
+    {                                                                  \
+        log_msg(log_level::name, format, std::forward<T0>(arg0), std::forward<Ts>(args)...); \
+    }
 
-static inline void log_info(const std::string &msg)
-{
-    log_msg(log_level::info, msg);
-}
+SPEAD2_DEFINE_LOG_LEVEL(debug)
+SPEAD2_DEFINE_LOG_LEVEL(info)
+SPEAD2_DEFINE_LOG_LEVEL(warning)
 
-static inline void log_warning(const std::string &msg)
-{
-    log_msg(log_level::warning, msg);
-}
-
-template<typename T0, typename... Ts>
-static inline void log_debug(const char *format, T0 &&arg0, Ts&&... args)
-{
-    log_msg(log_level::debug, format, std::forward<T0>(arg0), std::forward<Ts>(args)...);
-}
-
-template<typename T0, typename... Ts>
-static inline void log_info(const char *format, T0 &&arg0, Ts&&... args)
-{
-    log_msg(log_level::info, format, std::forward<T0>(arg0), std::forward<Ts>(args)...);
-}
-
-template<typename T0, typename... Ts>
-static inline void log_warning(const char *format, T0 &&arg0, Ts&&... args)
-{
-    log_msg(log_level::warning, format, std::forward<T0>(arg0), std::forward<Ts>(args)...);
-}
+#undef SPEAD2_DEFINE_LOG_LEVEL
 
 } // namespace spead2
 

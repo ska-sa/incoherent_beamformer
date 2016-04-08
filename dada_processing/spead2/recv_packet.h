@@ -1,3 +1,19 @@
+/* Copyright 2015 SKA South Africa
+ *
+ * This program is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Lesser General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 /**
  * @file
  */
@@ -35,9 +51,9 @@ struct packet_header
     s_item_pointer_t payload_length;
     /** @} */
     /// The item pointers in the packet, in big endian, and not necessarily aligned
-    const uint8_t *pointers;
+    const std::uint8_t *pointers;
     /// Start of the packet payload
-    const uint8_t *payload;
+    const std::uint8_t *payload;
 };
 
 /**
@@ -49,7 +65,7 @@ struct packet_header
  * @returns Actual packet size on success, or 0 on failure (due to malformed or
  * truncated packet).
  */
-std::size_t decode_packet(packet_header &out, const uint8_t *raw, std::size_t max_size);
+std::size_t decode_packet(packet_header &out, const std::uint8_t *raw, std::size_t max_size);
 
 } // namespace recv
 } // namespace spead2
