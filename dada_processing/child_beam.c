@@ -49,19 +49,19 @@ ipcbuf_t* data_block_1, data_block_2;
 key_t key_1, key_2;
 spead2::send::udp_stream * stream_p;
 
-void accumulate_and_beamform (char * incoming1, char * incoming2, uint16_t* beamformed, uint64_t size){
-    uint16_t *  acc1, * acc2;
+void accumulate_and_beamform (char * incoming1, char * incoming2, int16_t* beamformed, uint64_t size){
+    int16_t *  acc1, * acc2;
     int num_vals;
 
-    uint64_t num_out_vals = size / N_CHANS * N_POLS * N_CHANS * 4 / ACCUMULATE;
-    acc1 = (uint16_t*)malloc(num_out_vals * sizeof(uint16_t));
-    acc2 = (uint16_t*)malloc(num_out_vals * sizeof(uint16_t));
+    uint64_t num_out_vals = size * 2 / ACCUMULATE;
+    acc1 = (int16_t*)malloc(num_out_vals * sizeof(int16_t));
+    acc2 = (int16_t*)malloc(num_out_vals * sizeof(int16_t));
     
-    // fprintf (stderr, "----------------BUFFER 1----------------\n");
+    fprintf (stderr, "----------------BUFFER 1----------------\n");
     num_vals = accumulate(incoming1, acc1, size);
-    // fprintf (stderr, "----------------BUFFER 2----------------\n");
-    accumulate (incoming2, acc2, num_vals);
-    // fprintf (stderr, "----------------BEAMFORM----------------\n");
+    fprintf (stderr, "----------------BUFFER 2----------------\n");
+    accumulate (incoming2, acc2, size);
+    fprintf (stderr, "----------------BEAMFORM----------------\n");
     beamform (acc1, acc2, beamformed, num_vals);
 
     free(acc1);
@@ -75,7 +75,7 @@ void accumulate_and_beamform (char * incoming1, char * incoming2, uint16_t* beam
  * @ts num_vals number of values in beamformed array
  * @tp spead2 stream for sending data
  */
-void spead_out(uint16_t * beamformed, unsigned long long ts, uint64_t num_vals, spead2::send::udp_stream * stream)
+void spead_out(int16_t * beamformed, unsigned long long ts, uint64_t num_vals, spead2::send::udp_stream * stream)
 {
     fprintf (stderr, KRED "YOHO\n" RESET);
     //SPEAD STREAM SET UP
@@ -83,7 +83,7 @@ void spead_out(uint16_t * beamformed, unsigned long long ts, uint64_t num_vals, 
     fprintf (stderr, KGRN "HEY\n" RESET);
 
     spead2::flavour f(spead2::maximum_version, 64, 48, spead2::BUG_COMPAT_PYSPEAD_0_5_2);
-    spead2::send::heap h(0x2, f);
+    spead2::send::heap h(f);
     spead2::descriptor desc1;
     desc1.id = 0x1000;
     desc1.name = "ADC_COUNT";
@@ -102,11 +102,11 @@ void spead_out(uint16_t * beamformed, unsigned long long ts, uint64_t num_vals, 
 
     fprintf (stderr, KGRN "num_vals = %llu\n" RESET, num_vals);
     h.add_item(0x1000, &ts, sizeof(unsigned long long), true);
-    h.add_item(0x1001, beamformed, sizeof(uint16_t) * num_vals, true);
+    h.add_item(0x1001, beamformed, sizeof(int16_t) * num_vals, true);
     h.add_descriptor(desc1);
     h.add_descriptor(desc2);
 
-    fprintf (stderr, KYEL "sizeof(uint16_t) * num_vals = %llu\n" RESET, sizeof(uint16_t) * num_vals);
+    fprintf (stderr, KYEL "sizeof(int16_t) * num_vals = %llu\n" RESET, sizeof(int16_t) * num_vals);
 
     (*stream).async_send_heap(h, [] (const boost::system::error_code &ec, spead2::item_pointer_t bytes_transferred)
     {
@@ -122,12 +122,13 @@ void spead_out(uint16_t * beamformed, unsigned long long ts, uint64_t num_vals, 
     (*stream).flush();
 }
 
-void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
+void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port, char* ip)
 {
+    fprintf(stderr, "IN CONSUME");
 
     spead2::thread_pool tp;
     udp::resolver resolver(tp.get_io_service());
-    udp::resolver::query query("192.168.64.217", port);
+    udp::resolver::query query(ip, port);
     auto it = resolver.resolve(query);
     spead2::send::udp_stream stream(tp.get_io_service(), *it, spead2::send::stream_config(9000,  67108864 * 1.5));
     stream_p = &stream;
@@ -144,12 +145,12 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
          // return EXIT_FAILURE;
     }
 
-    if (dada_hdu_lock_read (hdu2) < 0){
-         fprintf(stderr, KRED "hdu2 CONNECT FAILED\n" RESET);
+    //if (dada_hdu_lock_read (hdu2) < 0){
+    //     fprintf(stderr, KRED "hdu2 CONNECT FAILED\n" RESET);
          // return EXIT_FAILURE;
-    }
-    initial_header(hdu1);
-    initial_header(hdu2);
+    //}
+    // initial_header(hdu1);
+    //initial_header(hdu2);
     
     if (ipcio_is_open (hdu1->data_block)){
         fprintf (stderr, KGRN "OPEN\n" RESET);
@@ -159,97 +160,109 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
     uint64_t blockid1, blockid2;
 
     uint64_t num_occupied_1 = ipcbuf_get_write_count (&(hdu1->data_block->buf)) - ipcbuf_get_read_count (&(hdu1->data_block->buf));
-    uint64_t num_occupied_2 = ipcbuf_get_write_count (&(hdu2->data_block->buf)) - ipcbuf_get_read_count (&(hdu2->data_block->buf));
+    uint64_t num_occupied_2 = 0;//ipcbuf_get_write_count (&(hdu2->data_block->buf)) - ipcbuf_get_read_count (&(hdu2->data_block->buf));
 
     while (num_occupied_1 > 0 && num_occupied_2 > 0){
         // fprintf (stderr, KYEL "hdu1 write count = %llu and hdu2 write count = %llu\n" RESET, ipcbuf_get_write_count (&(hdu1->data_block->buf)), ipcbuf_get_write_count (&(hdu1->data_block->buf)));
         get_timestamp(hdu1);
-        get_timestamp(hdu2);
+        //get_timestamp(hdu2);
         ipcio_open_block_read(hdu1->data_block, &(hdu1->data_block->curbufsz), &blockid1);
-        ipcio_open_block_read(hdu2->data_block, &(hdu2->data_block->curbufsz), &blockid2);
+        //ipcio_open_block_read(hdu2->data_block, &(hdu2->data_block->curbufsz), &blockid2);
         ssize_t size =  ipcio_close_block_read(hdu1->data_block, hdu1->data_block->curbufsz);
         dada_hdu_unlock_read(hdu1);
-        size =  ipcio_close_block_read(hdu2->data_block, hdu2->data_block->curbufsz);
-        dada_hdu_unlock_read(hdu2);
+        //size =  ipcio_close_block_read(hdu2->data_block, hdu2->data_block->curbufsz);
+        //dada_hdu_unlock_read(hdu2);
 
         if (dada_hdu_lock_read (hdu1) < 0){
             fprintf(stderr, KRED "hdu1 CONNECT FAILED\n" RESET);
             // return EXIT_FAILURE;
         }
 
-        if (dada_hdu_lock_read (hdu2) < 0){
-            fprintf(stderr, KRED "hdu2 CONNECT FAILED\n" RESET);
+        //if (dada_hdu_lock_read (hdu2) < 0){
+        //    fprintf(stderr, KRED "hdu2 CONNECT FAILED\n" RESET);
             // return EXIT_FAILURE;
-        }
+        //}
 
         num_occupied_1 = ipcbuf_get_write_count (&(hdu1->data_block->buf)) - ipcbuf_get_read_count (&(hdu1->data_block->buf));
-        num_occupied_2 = ipcbuf_get_write_count (&(hdu2->data_block->buf)) - ipcbuf_get_read_count (&(hdu2->data_block->buf));
+        //num_occupied_2 = ipcbuf_get_write_count (&(hdu2->data_block->buf)) - ipcbuf_get_read_count (&(hdu2->data_block->buf));
     }
 
     fprintf (stderr, KGRN "Cleared all buffers\n" RESET);
     int init = 0;
-    
+    dada_hdu_unlock_read(hdu1);
     // fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", hdu1->data_block->curbufsz);
+    uint64_t location = 0;
+    //double seconds = ts1 * 0.000000005;
+    int out_file = 0;
+    //char filename[255];
+    //snprintf(filename,255,"/home/kat/data/%.17g.dat", seconds);
+    //if (out_file == 0)
+    //    out_file  = open(filename, O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+
+    int send_count = 0;
+
     while(1){
 
         
 
-        if (buffer_allignment == 13){
-            ts1 = get_timestamp(hdu1);
-            ts2 = get_timestamp(hdu2);
+        //if (buffer_allignment == 13){
+            //ts1 = get_timestamp(hdu1);
+            //ts2 = get_timestamp(hdu2);
             
 
             fprintf(stderr, "ts1 = %llu\n", ts1);
-            fprintf(stderr, "ts2 = %llu\n", ts2);
+          //  fprintf(stderr, "ts2 = %llu\n", ts2);
 
-            fprintf(stderr, KGRN "ts diff of %llu\n" RESET, ts2 - ts1);
+            //fprintf(stderr, KGRN "ts diff of %llu\n" RESET, ts2 - ts1);
 
-            if (ts1 > ts2){
-                buffer_allignment = (ts1-ts2)/TIMESTAMP_INCREMENT*heap_size;
-                alligned = &hdu2;
-                missalligned = &hdu1;
-            }
-            else{
-                buffer_allignment = (ts2-ts1)/TIMESTAMP_INCREMENT*heap_size;
+            //if (ts1 > ts2){
+             //   buffer_allignment = (ts1-ts2)/TIMESTAMP_INCREMENT*heap_size;
+             //   alligned = &hdu2;
+            //    missalligned = &hdu1;
+            //}
+            //else{
+              //  buffer_allignment = (ts2-ts1)/TIMESTAMP_INCREMENT*heap_size;
                 alligned = &hdu1;
-                missalligned = &hdu2;
-            }
-            dada_hdu_unlock_read(hdu1);
-            dada_hdu_unlock_read(hdu2);
-        }
+                //missalligned = &hdu2;
+            //}
+            //dada_hdu_unlock_read(hdu1);
+            //dada_hdu_unlock_read(hdu2);
+        //}
 
         // fprintf(stderr, KGRN "Buffer allignment of %llu\n" RESET, buffer_allignment);
 
-        if (dada_hdu_lock_read (*alligned) < 0){
+        if (dada_hdu_lock_read (hdu1) < 0){
             fprintf(stderr, KRED "CONNECT FAILED\n" RESET);
              // return EXIT_FAILURE;
         }
-        if (dada_hdu_lock_read (*missalligned) < 0){
-            fprintf(stderr, KRED "CONNECT FAILED\n" RESET);
+        //if (dada_hdu_lock_read (*missalligned) < 0){
+        //    fprintf(stderr, KRED "CONNECT FAILED\n" RESET);
              // return EXIT_FAILURE;
-        }
+        //}
 
-        uint16_t** beamformed, *beam1, *beam2;
+        int16_t** beamformed, *beam1, *beam2;
         int buff_count = 0;
         char* buffer1, *buffer2;
         char* align_buffer;
         // fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
 
-        buffer1 = ipcio_open_block_read((*alligned)->data_block, &((*alligned)->data_block->curbufsz), &blockid1);
-
-        buffer2 = ipcio_open_block_read((*missalligned)->data_block, &((*missalligned)->data_block->curbufsz), &blockid2);
-
+        buffer1 = ipcio_open_block_read(hdu1->data_block, &(hdu1->data_block->curbufsz), &blockid1);
+         
+        //buffer2 = ipcio_open_block_read((*missalligned)->data_block, &((*missalligned)->data_block->curbufsz), &blockid2);
+        buffer2 = (char*)malloc(&(hdu1->data_block->curbufsz));
         // fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
 
         // fprintf(stderr, "YOLO\n");
 
+        uint64_t num_out_vals = hdu1->data_block->curbufsz * 2 / ACCUMULATE;
         if (init == 0){ //first buffer
             fprintf (stderr, "MAKING ALIGN BUFFER\n");
-            align_buffer = (char*)malloc((*missalligned)->data_block->curbufsz);
-            beam1 = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
-            beam2 = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
+
+            align_buffer = (char*)malloc(hdu1->data_block->curbufsz);
+            beam1 = (int16_t *)malloc(sizeof(int16_t) * num_out_vals);
+            beam2 = (int16_t *)malloc(sizeof(int16_t) * num_out_vals);
             // fprintf(stderr, "YOLOin\n");
-            memset(align_buffer, 0, (*missalligned)->data_block->curbufsz);
+            //memset(align_buffer, 0, (*missalligned)->data_block->curbufsz);
             // fprintf(stderr, "hdu1->data_block->curbufsz = %" PRIu64 "\n", (*missalligned)->data_block->curbufsz);
             init = 1;
         }
@@ -258,7 +271,7 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
 
         // fprintf(stderr, "buffer_allignment = %llu. (*missalligned)->data_block->curbufsz = %" PRIu64 " (*missalligned)->data_block->curbufsz - buffer_allignment = %llu\n", buffer_allignment, (*missalligned)->data_block->curbufsz, (*missalligned)->data_block->curbufsz - buffer_allignment);
 
-        memcpy (align_buffer + buffer_allignment, (*missalligned)->data_block->curbuf, (*missalligned)->data_block->curbufsz - buffer_allignment);
+        //memcpy (align_buffer + buffer_allignment, (*missalligned)->data_block->curbuf, (*missalligned)->data_block->curbufsz - buffer_allignment);
 
         clock_t start = clock(), diff;
 
@@ -267,18 +280,18 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
         
 
         if(buff_count == 0){
-            // beam1 = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
-            accumulate_and_beamform ((*alligned)->data_block->curbuf, align_buffer, beam1, (*alligned)->data_block->curbufsz);
+            //beam1 = (int16_t *)malloc(sizeof(int16_t) * 67108864);
+            accumulate_and_beamform (hdu1->data_block->curbuf, align_buffer, beam1, hdu1->data_block->curbufsz);
         }
         else{
-            beam2 = (uint16_t *)malloc(sizeof(uint16_t) * 67108864);
-            // accumulate_and_beamform ((*alligned)->data_block->curbuf, align_buffer, beam2, (*alligned)->data_block->curbufsz);
+            //beam2 = (int16_t *)malloc(sizeof(int16_t) * 67108864);
+            accumulate_and_beamform (hdu1->data_block->curbuf, align_buffer, beam2, hdu1->data_block->curbufsz);
         }
         // accumulate (buffer1, accumulated, hdu1->data_block->curbufsz);
 
 
-        memcpy (align_buffer, (*missalligned)->data_block->curbuf + (*missalligned)->data_block->curbufsz - buffer_allignment, buffer_allignment);
-        int num_out_vals = (*alligned)->data_block->curbufsz / N_CHANS * N_POLS * N_CHANS * 4 / ACCUMULATE;
+        //memcpy (align_buffer, (*missalligned)->data_block->curbuf + (*missalligned)->data_block->curbufsz - buffer_allignment, buffer_allignment);
+        //int num_out_vals = hdu1->data_block->curbufsz / N_CHANS * N_POLS * N_CHANS * 4 / ACCUMULATE;
         diff = clock() - start;
         double wdiff = omp_get_wtime() - wstart; 
         int msec = diff * 1000 / CLOCKS_PER_SEC;
@@ -286,24 +299,34 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
         // fprintf(stderr, "Wall time taken %f seconds\n", wdiff);
         // fprintf(stderr, KGRN "Speed up of %f\n" RESET, diff/1000000/wdiff);
 
-        ts1 = get_timestamp((*alligned));
-        ts2 = get_timestamp((*missalligned));
+        ts1 = get_timestamp(hdu1);
+        //ts2 = get_timestamp((*missalligned));
+         double seconds = ts1 * 0.000000005;
+    //int out_file = 0;
+    char filename[255];
+    snprintf(filename,255,"/home/kat/data/%.17g.dat", seconds);
+    if (out_file == 0){
+        out_file  = open(filename, O_WRONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+    }
+        ssize_t size =  ipcio_close_block_read(hdu1->data_block, hdu1->data_block->curbufsz);
+        dada_hdu_unlock_read(hdu1);
 
-        ssize_t size =  ipcio_close_block_read((*alligned)->data_block, (*alligned)->data_block->curbufsz);
-        dada_hdu_unlock_read((*alligned));
-
-        size =  ipcio_close_block_read((*missalligned)->data_block, (*missalligned)->data_block->curbufsz);
-        dada_hdu_unlock_read((*missalligned));
+        //size =  ipcio_close_block_read((*missalligned)->data_block, (*missalligned)->data_block->curbufsz);
+        //dada_hdu_unlock_read((*missalligned));
 
         
-        fprintf (stderr, KGRN "ts = %llu\n" RESET, ts1);
-        fprintf (stderr, KRED "diff : %llu\n" RESET, ts1 - prev);
+        //fprintf (stderr, KGRN "ts1 = %llu, ts2 = %llu, tsdiff= %lld\n" RESET, ts1, ts2, ts2-ts1);
+        int acc_ts1 = ts1/2048;
+        //int acc_ts2 = ts2/2048;
+        //fprintf (stderr, "Acc ts1 = %d - %d, acc ts2 = %d - %d, accdiff = %d\n", acc_ts1, acc_ts1 % ACCUMULATE, acc_ts2, acc_ts2 % ACCUMULATE, acc_ts2 -acc_ts1);
+        //fprintf (stderr, KRED "diff : %llu\n" RESET, ts1 - prev);
         prev = ts1;
         // spead_out (beamformed, ts1, num_out_vals, &stream);
         stream.flush();
+        fprintf(stderr, KRED "[%d, %d] Sent\n" RESET, send_count, buff_count);
 
         spead2::flavour f(spead2::maximum_version, 64, 48, spead2::BUG_COMPAT_PYSPEAD_0_5_2);
-        spead2::send::heap h(0x2, f);
+        spead2::send::heap h(f);
         spead2::descriptor desc1;
         desc1.id = 0x1000;
         desc1.name = "ADC_COUNT";
@@ -329,19 +352,27 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
 
         h.add_descriptor(desc2);
         if (buff_count == 0){
-            h.add_item(0x2001, beam1, sizeof(uint16_t) * num_out_vals, true);
+            h.add_item(0x2001, beam1, sizeof(int16_t) * num_out_vals, true);
             // free(beam2);
+            fprintf(stderr, KRED "[%d, %d] Sending beam1\n" RESET, send_count, buff_count);
+            send_count++;
+            pwrite(out_file, beam1, sizeof(int16_t) * num_out_vals, location);
+            location += sizeof(int16_t) * num_out_vals;
         }
         else
         {
-            h.add_item(0x2001, beam2, sizeof(uint16_t) * num_out_vals, true);
+            h.add_item(0x2001, beam2, sizeof(int16_t) * num_out_vals, true);
+            fprintf(stderr, KRED "[%d, %d] Sending beam2\n" RESET , send_count, buff_count);
+            send_count++;
             // free(beam1);
+            pwrite(out_file, beam2, sizeof(int16_t) * num_out_vals, location);
+            location += sizeof(int16_t) * num_out_vals;
         }
 
         
         
 
-        fprintf (stderr, KYEL "sizeof(uint16_t) * num_vals = %llu\n" RESET, sizeof(uint16_t) * num_out_vals);
+        fprintf (stderr, KYEL "sizeof(int16_t) * num_vals = %llu\n" RESET, sizeof(int16_t) * num_out_vals);
 
         
         stream.async_send_heap(h, [] (const boost::system::error_code &ec, spead2::item_pointer_t bytes_transferred)
@@ -372,7 +403,7 @@ void consume(dada_hdu_t * hdu1, dada_hdu_t * hdu2, char* port)
 void INThandler(int sig){
     fprintf(stderr, "Sending end of stream packet\n");
     spead2::flavour f(spead2::maximum_version, 64, 48, spead2::BUG_COMPAT_PYSPEAD_0_5_2);
-    spead2::send::heap end(0x3, f);
+    spead2::send::heap end(f);
     end.add_end();
     (*stream_p).async_send_heap(end, [] (const boost::system::error_code &ec, spead2::item_pointer_t bytes_transferred) {});
     (*stream_p).flush();
@@ -386,7 +417,7 @@ int main (int argc, char **argv)
     dada_hdu_t * hdu1;
     dada_hdu_t * hdu2;
     connect_to_buffer(&hdu1, DADA_BUF_1);
-    connect_to_buffer(&hdu2, DADA_BUF_2);
-    if (argc == 2)
-        consume(hdu1,hdu2, argv[1]);
+    //connect_to_buffer(&hdu2, DADA_BUF_2);
+    if (argc == 3)
+        consume(hdu1,hdu2, argv[1],argv[2]);
 }

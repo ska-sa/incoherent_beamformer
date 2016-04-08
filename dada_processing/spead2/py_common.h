@@ -1,3 +1,19 @@
+/* Copyright 2015 SKA South Africa
+ *
+ * This program is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Lesser General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 /**
  * @file
  */
@@ -10,10 +26,10 @@
 #include <boost/python.hpp>
 #include <boost/noncopyable.hpp>
 #include <boost/version.hpp>
+#include <boost/system/system_error.hpp>
 #include <cassert>
 #include <mutex>
 #include <stdexcept>
-#include "common_ringbuffer.h"
 #include "common_thread_pool.h"
 
 namespace spead2
@@ -23,6 +39,13 @@ class stop_iteration : public std::exception
 {
 public:
     using std::exception::exception;
+};
+
+/// Wrapper for generating Python IOError from a boost error code
+class boost_io_error : public boost::system::system_error
+{
+public:
+    using boost::system::system_error::system_error;
 };
 
 /**
@@ -44,6 +67,51 @@ public:
     {
     }
 };
+
+/**
+ * Function object utility to provide getter and setter access to a std::string
+ * element of a structure as if it were declared as a bytestring. Used by
+ * make_bytestring_getter and make_bytestring_setter.
+ */
+template<class Data, class Class>
+class bytestring_member
+{
+public:
+    explicit bytestring_member(Data Class::*ptr) : ptr(ptr) {}
+
+    bytestring operator()(Class &c) const
+    {
+        return c.*ptr;
+    }
+
+    void operator()(Class &c, bytestring value) const
+    {
+        c.*ptr = std::move(value);
+    }
+
+private:
+    Data Class::*ptr;
+};
+
+template<class Data, class Class>
+boost::python::object make_bytestring_getter(Data Class::*ptr)
+{
+    using namespace boost::python;
+    return make_function(
+        bytestring_member<Data, Class>(ptr),
+        return_value_policy<return_by_value>(),
+        boost::mpl::vector2<bytestring, Class &>());
+}
+
+template<class Data, class Class>
+boost::python::object make_bytestring_setter(Data Class::*ptr)
+{
+    using namespace boost::python;
+    return make_function(
+        bytestring_member<Data, Class>(ptr),
+        default_call_policies(),
+        boost::mpl::vector3<void, Class &, bytestring>());
+}
 
 /**
  * RAII wrapper that releases the Python Global Interpreter Lock on
@@ -164,15 +232,42 @@ public:
     void stop();
 };
 
+/* Container for a thread pool handle. It's put into a separate class so that
+ * it can be inherited from by wrapper classes that need it, earlier in the
+ * inheritance chain than objects that depend on it. That's necessary to obtain
+ * the correct destructor ordering.
+ */
+struct thread_pool_handle_wrapper
+{
+    boost::python::handle<> thread_pool_handle;
+};
+
 /**
  * Semaphore variant that releases the GIL during waits, and throws an
  * exception if interrupted by SIGINT in the Python process.
  */
-class semaphore_gil : public semaphore
+template<typename Semaphore>
+class semaphore_gil : public Semaphore
 {
 public:
+    using Semaphore::Semaphore;
     int get();
 };
+
+template<typename Semaphore>
+int semaphore_gil<Semaphore>::get()
+{
+    release_gil gil;
+    int result = Semaphore::get();
+    if (result == -1)
+    {
+        // Allow SIGINT to abort the wait
+        gil.acquire();
+        if (PyErr_CheckSignals() == -1)
+            boost::python::throw_error_already_set();
+    }
+    return result;
+}
 
 /* Older versions of boost don't understand std::shared_ptr properly. This is
  * in the spead2 namespace so that it will be found by ADL when considering
@@ -195,7 +290,7 @@ T *get_pointer(const std::shared_ptr<T> &p)
  * with_custodian_and_ward, which in some cases seems to not respect
  * dependencies when the interpreter is shut down.
  */
-template<typename T, boost::python::handle<> T::*handle_ptr,
+template<typename T, typename P, boost::python::handle<> P::*handle_ptr,
     std::size_t custodian, std::size_t ward,
     class BasePolicy_ = boost::python::default_call_policies>
 struct store_handle_postcall : BasePolicy_

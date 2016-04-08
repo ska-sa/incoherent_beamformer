@@ -1,3 +1,19 @@
+/* Copyright 2015 SKA South Africa
+ *
+ * This program is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Lesser General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 /**
  * @file
  */
@@ -43,6 +59,7 @@ private:
     static constexpr std::size_t prefix_size = 8 + 4 * sizeof(item_pointer_t);
 
     const heap &h;
+    item_pointer_t cnt;
     std::size_t max_packet_size;
     std::size_t max_item_pointers_per_packet;
 
@@ -61,7 +78,7 @@ private:
     bool need_null_item = false;
 
 public:
-    packet_generator(const heap &h, std::size_t max_packet_size);
+    packet_generator(const heap &h, item_pointer_t cnt, std::size_t max_packet_size);
 
     packet next_packet();
 };

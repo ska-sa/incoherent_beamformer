@@ -1,9 +1,25 @@
+/* Copyright 2015 SKA South Africa
+ *
+ * This program is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Lesser General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 /**
  * @file
  */
 
-#ifndef SPEAD2_RECV_STREAM
-#define SPEAD2_RECV_STREAM
+#ifndef SPEAD2_RECV_STREAM_H
+#define SPEAD2_RECV_STREAM_H
 
 #include <cstddef>
 #include <deque>
@@ -12,11 +28,13 @@
 #include <functional>
 #include <future>
 #include <mutex>
+#include <atomic>
 #include <type_traits>
 #include <boost/asio.hpp>
 #include "recv_live_heap.h"
 #include "recv_reader.h"
 #include "common_memory_pool.h"
+#include "common_bind.h"
 
 namespace spead2
 {
@@ -43,22 +61,57 @@ struct packet_header;
  *
  * This class is @em not thread-safe. Almost all use cases (possibly excluding
  * testing) will derive from @ref stream.
+ *
+ * @internal
+ *
+ * The live heaps are stored in a circular queue (this has fewer pointer
+ * indirections than @c std::deque). The heap cnts stored in another circular
+ * queue with the same indexing. The heap cnt queue is redundant, but having a
+ * separate queue of heap cnts reduces the number of cache lines touched to
+ * find the right heap.
+ *
+ * When a heap is removed from the circular queue, the queue is not shifted
+ * up. Instead, a hole is left. The queue thus only needs a head and not a
+ * tail. When adding a new heap, any heap stored in the head position is
+ * evicted. This means that heaps may be evicted before it is strictly
+ * necessary from the point of view of available storage, but this prevents
+ * heaps with lost packets from hanging around forever.
  */
 class stream_base
 {
 private:
+    typedef typename std::aligned_storage<sizeof(live_heap), alignof(live_heap)>::type storage_type;
     /**
-     * Maximum number of live heaps permitted. Temporarily one more might be
-     * present immediate prior to one being ejected.
+     * Circular queue for heaps.
+     *
+     * A particular heap is in a constructed state iff the corresponding
+     * element of @a heap_cnt is non-negative.
      */
+    std::unique_ptr<storage_type[]> heap_storage;
+    /// Circular queue for heap cnts, with -1 indicating a hole.
+    std::unique_ptr<s_item_pointer_t[]> heap_cnts;
+    /// Position of the most recently added heap
+    std::size_t head;
+
+    /// Maximum number of live heaps permitted.
     std::size_t max_heaps;
-    /// Live heaps, ordered by heap ID
-    std::deque<live_heap> heaps;
     /// @ref stop_received has been called, either externally or by stream control
     bool stopped = false;
     /// Protocol bugs to be compatible with
     bug_compat_mask bug_compat;
-    /// Memory pool used by heaps
+
+    /// Function used to copy heap payloads
+    std::atomic<memcpy_function> memcpy{std::memcpy};
+
+    /// Mutex protecting @ref pool
+    std::mutex pool_mutex;
+    /**
+     * Memory pool used by heaps.
+     *
+     * This is protected by pool_mutex. C++11 mandates free @c atomic_load and
+     * @c atomic_store on @c shared_ptr, but GCC 4.8 doesn't implement it. Also,
+     * std::atomic<std::shared_ptr<T>> causes undefined symbol errors.
+     */
     std::shared_ptr<memory_pool> pool;
 
     /**
@@ -66,10 +119,6 @@ private:
      * The heap might or might not be complete.
      */
     virtual void heap_ready(live_heap &&) {}
-
-    // Prevent copying
-    stream_base(const stream_base &) = delete;
-    stream_base &operator=(const stream_base &) = delete;
 
 public:
     static constexpr std::size_t default_max_heaps = 4;
@@ -81,19 +130,18 @@ public:
      * @param max_heaps    Maximum number of live (in-flight) heaps held in the stream
      */
     explicit stream_base(bug_compat_mask bug_compat = 0, std::size_t max_heaps = default_max_heaps);
-    virtual ~stream_base() = default;
-
-    /**
-     * Change the maximum heap count. This will not immediately cause heaps to
-     * be ejected if over the limit, but will prevent any increase until the
-     * number is back under the limit.
-     */
-    void set_max_heaps(std::size_t max_heaps);
+    virtual ~stream_base();
 
     /**
      * Set a pool to use for allocating heap memory.
      */
     void set_memory_pool(std::shared_ptr<memory_pool> pool);
+
+    /// Set an alternative memcpy function for copying heap payload
+    void set_memcpy(memcpy_function memcpy);
+
+    /// Set builtin memcpy function to use for copying payload
+    void set_memcpy(memcpy_function_id id);
 
     /**
      * Add a packet that was received, and which has been examined by @a
@@ -163,6 +211,14 @@ private:
         }
     }
 
+    /* Prevent moving (copying is already impossible). Moving is not safe
+     * because readers refer back to *this (it could potentially be added if
+     * there is a good reason for it, but it would require adding a new
+     * function to the reader interface.
+     */
+    stream(stream_base &&) = delete;
+    stream &operator=(stream_base &&) = delete;
+
 protected:
     virtual void stop_received() override;
 
@@ -197,16 +253,14 @@ protected:
 public:
     using stream_base::get_bug_compat;
     using stream_base::default_max_heaps;
+    using stream_base::set_memory_pool;
+    using stream_base::set_memcpy;
 
     boost::asio::io_service::strand &get_strand() { return strand; }
 
-    // TODO: introduce constant for default max_heaps
     explicit stream(boost::asio::io_service &service, bug_compat_mask bug_compat = 0, std::size_t max_heaps = default_max_heaps);
     explicit stream(thread_pool &pool, bug_compat_mask bug_compat = 0, std::size_t max_heaps = default_max_heaps);
     virtual ~stream() override;
-
-    void set_max_heaps(std::size_t max_heaps);
-    void set_memory_pool(std::shared_ptr<memory_pool> pool);
 
     /**
      * Add a new reader by passing its constructor arguments, excluding
@@ -218,8 +272,8 @@ public:
         // This would probably work better with a lambda (better forwarding),
         // but GCC 4.8 has a bug with accessing parameter packs inside a
         // lambda.
-        run_in_strand(std::bind(
-                &stream::emplace_reader_callback<T, const Args&...>,
+        run_in_strand(detail::reference_bind(
+                std::mem_fn(&stream::emplace_reader_callback<T, Args&&...>),
                 this, std::forward<Args>(args)...));
     }
 
@@ -227,8 +281,11 @@ public:
      * Stop the stream and block until all the readers have wound up. After
      * calling this there should be no more outstanding completion handlers
      * in the thread pool.
+     *
+     * In most cases subclasses should override @ref stop_received rather than
+     * this function.
      */
-    void stop();
+    virtual void stop();
 };
 
 /**
@@ -244,4 +301,4 @@ const std::uint8_t *mem_to_stream(stream_base &s, const std::uint8_t *ptr, std::
 } // namespace recv
 } // namespace spead2
 
-#endif // SPEAD2_RECV_STREAM
+#endif // SPEAD2_RECV_STREAM_H

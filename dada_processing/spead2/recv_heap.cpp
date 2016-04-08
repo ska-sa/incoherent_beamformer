@@ -1,3 +1,19 @@
+/* Copyright 2015 SKA South Africa
+ *
+ * This program is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Lesser General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 /**
  * @file
  */
@@ -7,6 +23,7 @@
 #include <utility>
 #include <cstring>
 #include <string>
+#include <unordered_set>
 #include "recv_live_heap.h"
 #include "recv_heap.h"
 #include "recv_stream.h"
@@ -71,6 +88,14 @@ heap::heap(live_heap &&h)
     uint8_t *next_immediate = immediate_payload.get();
     items.reserve(h.pointers.size());
 
+    /* Some SPEAD implementations send duplicate items, which can add
+     * significant overhead in the Python API to process. We filter them out
+     * here using seen_items to track which IDs have already appeared.
+     *
+     * DESCRIPTOR_ID is a special case, because a heap can contain multiple
+     * descriptors.
+     */
+    std::unordered_set<item_pointer_t> seen_items;
     for (std::size_t i = 0; i < h.pointers.size(); i++)
     {
         item new_item;
@@ -78,19 +103,30 @@ heap::heap(live_heap &&h)
         new_item.id = decoder.get_id(pointer);
         if (new_item.id == 0)
             continue; // just padding
+        /* Note: we cannot actually do the insertion here, because where the
+         * item pointer for addressed items is duplicated, all but one of
+         * the duplicates references an empty item.
+         */
+        if (new_item.id > STREAM_CTRL_ID && seen_items.count(new_item.id))
+        {
+            log_debug("Duplicate item with ID %d", new_item.id);
+            continue;
+        }
         new_item.is_immediate = decoder.is_immediate(pointer);
         if (new_item.is_immediate)
         {
             new_item.ptr = next_immediate;
             new_item.length = immediate_size;
+            new_item.immediate_value = decoder.get_immediate(pointer);
             item_pointer_t pointer_be = htobe<item_pointer_t>(pointer);
             std::memcpy(
                 next_immediate,
                 reinterpret_cast<const std::uint8_t *>(&pointer_be) + id_size,
                 immediate_size);
             log_debug("Found new immediate item ID %d, value %d",
-                      new_item.id, decoder.get_immediate(pointer));
+                      new_item.id, new_item.immediate_value);
             next_immediate += immediate_size;
+            seen_items.insert(new_item.id);
         }
         else
         {
@@ -101,6 +137,7 @@ heap::heap(live_heap &&h)
                 end = decoder.get_address(h.pointers[i + 1]);
             else
                 end = h.min_length;
+            assert(start <= h.min_length);
             if (start == end)
             {
                 log_debug("skipping empty item %d", new_item.id);
@@ -110,6 +147,7 @@ heap::heap(live_heap &&h)
             new_item.length = end - start;
             log_debug("found new addressed item ID %d, offset %d, length %d",
                       new_item.id, start, end - start);
+            seen_items.insert(new_item.id);
         }
         items.push_back(new_item);
     }
@@ -222,6 +260,18 @@ std::vector<descriptor> heap::get_descriptors() const
     }
     s.stop_received();
     return s.descriptors;
+}
+
+bool heap::is_start_of_stream() const
+{
+    for (const item &item : items)
+        if (item.id == STREAM_CTRL_ID)
+        {
+            item_pointer_t value = load_bytes_be(item.ptr, item.length);
+            if (value == CTRL_STREAM_START)
+                return true;
+        }
+    return false;
 }
 
 } // namespace recv

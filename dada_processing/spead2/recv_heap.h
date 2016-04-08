@@ -1,3 +1,19 @@
+/* Copyright 2015 SKA South Africa
+ *
+ * This program is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Lesser General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 /**
  * @file
  */
@@ -29,9 +45,11 @@ struct item
     s_item_pointer_t id;
     /// Start of memory containing value
     std::uint8_t *ptr;
-    /// Start of memory containing length
+    /// Length of memory
     std::size_t length;
-    /// Whether the item is immediate (needed to validate certain special IDs)
+    /// The immediate interpreted as an integer (undefined if not immediate)
+    item_pointer_t immediate_value;
+    /// Whether the item is immediate
     bool is_immediate;
 };
 
@@ -87,6 +105,12 @@ public:
 
     /// Extract and decode descriptors from this heap
     std::vector<descriptor> get_descriptors() const;
+
+    /**
+     * Convenience function to check whether any of the items is
+     * a @c CTRL_STREAM_START.
+     */
+    bool is_start_of_stream() const;
 };
 
 } // namespace recv

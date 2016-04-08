@@ -1,3 +1,19 @@
+/* Copyright 2015 SKA South Africa
+ *
+ * This program is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Lesser General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 #define PY_ARRAY_UNIQUE_SYMBOL spead2_ARRAY_API
 #define NO_IMPORT_ARRAY
@@ -5,12 +21,15 @@
 #include <boost/make_shared.hpp>
 #include <numpy/arrayobject.h>
 #include <stdexcept>
+#include <cstdint>
+#include <unistd.h>
 #include "recv_udp.h"
 #include "recv_mem.h"
 #include "recv_stream.h"
 #include "recv_ring_stream.h"
 #include "recv_live_heap.h"
 #include "recv_heap.h"
+#include "common_ringbuffer.h"
 #include "py_common.h"
 
 namespace py = boost::python;
@@ -29,12 +48,12 @@ class item_wrapper : public item
 {
 private:
     /// Python object containing a @ref heap
-    py::object owning_heap;
+    py::handle<> owning_heap;
 
 public:
     item_wrapper() = default;
     item_wrapper(const item &it, PyObject *owning_heap)
-        : item(it), owning_heap(py::handle<>(py::borrowed(owning_heap))) {}
+        : item(it), owning_heap(py::borrowed(owning_heap)) {}
 
     /**
      * Obtain the raw value, as a Python object memoryview.  Since
@@ -57,9 +76,9 @@ public:
         // Make the numpy array hold a ref to the owning heap
         if (PyArray_SetBaseObject(
                 (PyArrayObject *) array,
-                py::incref(owning_heap.ptr())) == -1)
+                py::incref(owning_heap.get())) == -1)
         {
-            py::decref(owning_heap.ptr());
+            py::decref(owning_heap.get());
             py::throw_error_already_set();
         }
 
@@ -77,10 +96,14 @@ public:
 };
 
 /**
- * Wrapper for heaps. For some reason boost::python doesn't provide
- * a way for object methods to retrieve their self object, so we have to store
- * a copy of it here, and set it whenever we build one of these objects. We
- * need this for @ref item_wrapper.
+ * Wrapper for heaps. This is used as a held type, so that it gets a back
+ * reference to the Python object (needed so that item_wrapper can hold a
+ * reference to the heap).
+ *
+ * The constructor steals data from the provided heap, but Boost.Python
+ * doesn't currently understand C++11 rvalue semantics. Thus, it is vital
+ * that any wrapped function returning a heap returns a temporary that can be
+ * safely clobbered.
  */
 class heap_wrapper : public heap
 {
@@ -88,9 +111,8 @@ private:
     PyObject *self;
 
 public:
-    /// Constructor when built from Python
-    heap_wrapper(heap &&h) : heap(std::move(h)), self(nullptr) {}
-    void set_self(PyObject *self) { this->self = self; }
+    heap_wrapper(PyObject *self, const heap &h)
+        : heap(std::move(const_cast<heap &>(h))), self(self) {}
 
     /// Wrap @ref heap::get_items, and convert vector to a Python list
     py::list get_items() const
@@ -116,13 +138,6 @@ public:
             out.append(d);
         return out;
     }
-
-    /**
-     * Return the flavour by value instead of by const reference. In theory
-     * this should be achievable with a call policy, but it seems to lead to
-     * runtime errors in overload resolution.
-     */
-    flavour get_flavour() const { return heap::get_flavour(); }
 };
 
 /**
@@ -151,33 +166,31 @@ public:
  * on completion of code scheduled through the thread pool must drop the GIL
  * first.
  */
-class ring_stream_wrapper : public ring_stream<ringbuffer_semaphore<live_heap, semaphore_gil> >
+class ring_stream_wrapper : public thread_pool_handle_wrapper, public ring_stream<ringbuffer<live_heap, semaphore_gil<semaphore_fd>, semaphore> >
 {
 private:
-    /// Holds a Python reference to the thread pool
-    py::handle<> thread_pool_handle;
-    friend void register_module();
-
-    py::object wrap_heap(heap &&fh)
+    boost::asio::ip::address make_address(const std::string &hostname)
     {
-        // We need to allocate a new object to have type heap_wrapper,
-        // but it can move all the resources out of fh.
-        heap_wrapper *wrapper = new heap_wrapper(std::move(fh));
-        std::unique_ptr<heap_wrapper> wrapper_ptr(wrapper);
-        // Wrap the pointer up into a Python object
-        py::manage_new_object::apply<heap_wrapper *>::type converter;
-        PyObject *obj_ptr = converter(wrapper);
-        wrapper_ptr.release();
-        py::object obj{py::handle<>(obj_ptr)};
-        // Tell the wrapper what its Python handle is
-        wrapper->set_self(obj_ptr);
-        return obj;
+        if (hostname.empty())
+            return boost::asio::ip::address_v4::any();
+        else
+        {
+            using boost::asio::ip::udp;
+            udp::resolver resolver(get_strand().get_io_service());
+            udp::resolver::query query(hostname, "", udp::resolver::query::passive);
+            return resolver.resolve(query)->endpoint().address();
+        }
+    }
+
+    boost::asio::ip::udp::endpoint make_endpoint(const std::string &hostname, std::uint16_t port)
+    {
+        return boost::asio::ip::udp::endpoint(make_address(hostname), port);
     }
 
 public:
     using ring_stream::ring_stream;
 
-    py::object next()
+    heap next()
     {
         try
         {
@@ -189,25 +202,30 @@ public:
         }
     }
 
-    py::object get()
+    heap get()
     {
-        return wrap_heap(ring_stream::pop());
+        return ring_stream::pop();
     }
 
-    py::object get_nowait()
+    heap get_nowait()
     {
-        return wrap_heap(ring_stream::try_pop());
+        return try_pop();
     }
 
     int get_fd() const
     {
-        return get_ringbuffer().get_fd();
+        return get_ringbuffer().get_data_sem().get_fd();
     }
 
     void set_memory_pool(std::shared_ptr<memory_pool> pool)
     {
         release_gil gil;
         ring_stream::set_memory_pool(std::move(pool));
+    }
+
+    void set_memcpy(int id)
+    {
+        ring_stream::set_memcpy(memcpy_function_id(id));
     }
 
     void add_buffer_reader(py::object buffer)
@@ -218,21 +236,63 @@ public:
     }
 
     void add_udp_reader(
-        int port,
+        std::uint16_t port,
         std::size_t max_size = udp_reader::default_max_size,
         std::size_t buffer_size = udp_reader::default_buffer_size,
-        const std::string &bind_hostname = "")
+        const std::string &bind_hostname = "",
+        const py::object &socket = py::object())
     {
-        using boost::asio::ip::udp;
-        release_gil gil;
-        udp::endpoint endpoint(boost::asio::ip::address_v4::any(), port);
-        if (!bind_hostname.empty())
+        int fd2 = -1;
+        if (!socket.is_none())
         {
-            udp::resolver resolver(get_strand().get_io_service());
-            udp::resolver::query query(bind_hostname, "", udp::resolver::query::passive | udp::resolver::query::address_configured);
-            endpoint.address(resolver.resolve(query)->endpoint().address());
+            int fd = py::extract<int>(socket.attr("fileno")());
+            /* Python still owns this FD and will close it, so we have to duplicate
+             * it for ourselves.
+             */
+            fd2 = ::dup(fd);
+            if (fd2 == -1)
+            {
+                PyErr_SetFromErrno(PyExc_OSError);
+                throw py::error_already_set();
+            }
         }
-        emplace_reader<udp_reader>(endpoint, max_size, buffer_size);
+
+        release_gil gil;
+        auto endpoint = make_endpoint(bind_hostname, port);
+        if (fd2 == -1)
+        {
+            emplace_reader<udp_reader>(endpoint, max_size, buffer_size);
+        }
+        else
+        {
+            boost::asio::ip::udp::socket asio_socket(
+                get_strand().get_io_service(), endpoint.protocol(), fd2);
+            emplace_reader<udp_reader>(std::move(asio_socket), endpoint, max_size, buffer_size);
+        }
+    }
+
+    void add_udp_reader_multicast_v4(
+        const std::string &multicast_group,
+        std::uint16_t port,
+        std::size_t max_size,
+        std::size_t buffer_size,
+        const std::string &interface_address)
+    {
+        release_gil gil;
+        auto endpoint = make_endpoint(multicast_group, port);
+        emplace_reader<udp_reader>(endpoint, max_size, buffer_size, make_address(interface_address));
+    }
+
+    void add_udp_reader_multicast_v6(
+        const std::string &multicast_group,
+        std::uint16_t port,
+        std::size_t max_size,
+        std::size_t buffer_size,
+        unsigned int interface_index)
+    {
+        release_gil gil;
+        auto endpoint = make_endpoint(multicast_group, port);
+        emplace_reader<udp_reader>(endpoint, max_size, buffer_size, interface_index);
     }
 
     void stop()
@@ -258,20 +318,24 @@ void register_module()
     py::object module(py::handle<>(py::borrowed(PyImport_AddModule("spead2._recv"))));
     py::scope scope = module;
 
-    class_<heap_wrapper, boost::noncopyable>("Heap", no_init)
+    class_<heap, heap_wrapper>("Heap", no_init)
         .add_property("cnt", &heap_wrapper::get_cnt)
-        .add_property("flavour", &heap_wrapper::get_flavour)
+        .add_property("flavour",
+            make_function(&heap_wrapper::get_flavour, return_value_policy<copy_const_reference>()))
         .def("get_items", &heap_wrapper::get_items)
-        .def("get_descriptors", &heap_wrapper::get_descriptors);
+        .def("get_descriptors", &heap_wrapper::get_descriptors)
+        .def("is_start_of_stream", &heap_wrapper::is_start_of_stream);
     class_<item_wrapper>("RawItem", no_init)
         .def_readonly("id", &item_wrapper::id)
         .def_readonly("is_immediate", &item_wrapper::is_immediate)
+        .def_readonly("immediate_value", &item_wrapper::immediate_value)
         .add_property("value", &item_wrapper::get_value);
     class_<ring_stream_wrapper, boost::noncopyable>("Stream",
-            init<thread_pool_wrapper &, bug_compat_mask, std::size_t>(
+            init<thread_pool_wrapper &, bug_compat_mask, std::size_t, std::size_t>(
                 (arg("thread_pool"), arg("bug_compat") = 0,
-                 arg("max_heaps") = ring_stream_wrapper::default_max_heaps))[
-                store_handle_postcall<ring_stream_wrapper, &ring_stream_wrapper::thread_pool_handle, 1, 2>()])
+                 arg("max_heaps") = ring_stream_wrapper::default_max_heaps,
+                 arg("ring_heaps") = ring_stream_wrapper::default_ring_heaps))[
+                store_handle_postcall<ring_stream_wrapper, thread_pool_handle_wrapper, &thread_pool_handle_wrapper::thread_pool_handle, 1, 2>()])
         .def("__iter__", objects::identity_function())
         .def(
 #if PY_MAJOR_VERSION >= 3
@@ -285,15 +349,36 @@ void register_module()
         .def("get_nowait", &ring_stream_wrapper::get_nowait)
         .def("set_memory_pool", &ring_stream_wrapper::set_memory_pool,
              arg("pool"))
+        .def("set_memcpy", &ring_stream_wrapper::set_memcpy,
+             arg("id"))
         .def("add_buffer_reader", &ring_stream_wrapper::add_buffer_reader,
              arg("buffer"))
         .def("add_udp_reader", &ring_stream_wrapper::add_udp_reader,
              (arg("port"),
               arg("max_size") = udp_reader::default_max_size,
               arg("buffer_size") = udp_reader::default_buffer_size,
-              arg("bind_hostname") = std::string()))
+              arg("bind_hostname") = std::string(),
+              arg("socket") = py::object()))
+        .def("add_udp_reader", &ring_stream_wrapper::add_udp_reader_multicast_v4,
+             (
+              arg("multicast_group"),
+              arg("port"),
+              arg("max_size") = udp_reader::default_max_size,
+              arg("buffer_size") = udp_reader::default_buffer_size,
+              arg("interface_address") = "0.0.0.0"))
+        .def("add_udp_reader", &ring_stream_wrapper::add_udp_reader_multicast_v6,
+             (
+              arg("multicast_group"),
+              arg("port"),
+              arg("max_size") = udp_reader::default_max_size,
+              arg("buffer_size") = udp_reader::default_buffer_size,
+              arg("interface_index") = (unsigned int) 0))
         .def("stop", &ring_stream_wrapper::stop)
-        .add_property("fd", &ring_stream_wrapper::get_fd);
+        .add_property("fd", &ring_stream_wrapper::get_fd)
+        .def_readonly("DEFAULT_MAX_HEAPS", ring_stream_wrapper::default_max_heaps)
+        .def_readonly("DEFAULT_RING_HEAPS", ring_stream_wrapper::default_ring_heaps)
+        .def_readonly("DEFAULT_UDP_MAX_SIZE", udp_reader::default_max_size)
+        .def_readonly("DEFAULT_UDP_BUFFER_SIZE", udp_reader::default_buffer_size);
 }
 
 } // namespace recv

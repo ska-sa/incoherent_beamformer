@@ -1,3 +1,19 @@
+/* Copyright 2015 SKA South Africa
+ *
+ * This program is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Lesser General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 /**
  * @file
  *
@@ -65,6 +81,14 @@ enum ctrl_mode : unsigned int
     CTRL_STREAM_STOP = 2,
     CTRL_DESCRIPTOR_UPDATE = 3
 };
+
+enum memcpy_function_id : unsigned int
+{
+    MEMCPY_STD,
+    MEMCPY_NONTEMPORAL
+};
+
+typedef void *(*memcpy_function)(void * __restrict__, const void * __restrict__, std::size_t);
 
 /**
  * An unpacked descriptor.

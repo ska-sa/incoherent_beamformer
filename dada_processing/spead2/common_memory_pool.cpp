@@ -1,8 +1,26 @@
+/* Copyright 2015 SKA South Africa
+ *
+ * This program is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Lesser General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 /**
  * @file
  */
 
 #include <cassert>
+#include <utility>
+#include <memory>
 #include "common_memory_pool.h"
 #include "common_logging.h"
 
@@ -19,17 +37,21 @@ memory_pool::memory_pool(std::size_t lower, std::size_t upper, std::size_t max_f
     assert(lower <= upper);
     assert(initial <= max_free);
     for (std::size_t i = 0; i < initial; i++)
-        pool.emplace(new std::uint8_t[upper]);
+        pool.emplace(allocate_for_pool());
 }
 
-void memory_pool::return_to_pool(const std::weak_ptr<memory_pool> &self_weak, std::uint8_t *ptr)
+memory_pool::destructor::destructor(std::shared_ptr<memory_pool> owner)
+    : owner(std::move(owner))
 {
-    std::shared_ptr<memory_pool> self = self_weak.lock();
-    if (self)
-        self->return_to_pool(ptr);
+}
+
+void memory_pool::destructor::operator()(std::uint8_t *ptr) const
+{
+    if (owner)
+        owner->return_to_pool(ptr);
     else
     {
-        log_debug("dropping memory because the pool has been freed");
+        // Not allocated from pool
         delete[] ptr;
     }
 }
@@ -80,16 +102,12 @@ memory_pool::pointer memory_pool::allocate(std::size_t size)
         }
         // The pool may be discarded while the memory is still allocated: in
         // this case, it is simply freed.
-        std::weak_ptr<memory_pool> self(shared_from_this());
-        // this is not actually used (and shouldn't be, because this might have
-        // been freed), but a user has reported a compiler error if it is not
-        // captured.
-        return pointer(ptr.release(), [this, self] (std::uint8_t *p) { return_to_pool(self, p); });
+        return pointer(ptr.release(), destructor(shared_from_this()));
     }
     else
     {
         log_debug("allocating %d bytes without using the pool", size);
-        return pointer(new std::uint8_t[size], std::default_delete<std::uint8_t[]>());
+        return pointer(new std::uint8_t[size]);
     }
 }
 
